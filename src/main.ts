@@ -140,23 +140,36 @@ const callLLM = PROVIDER === 'anthropic' ? callLLM_Anthropic : callLLM_OpenAI;
 // Agent 循环
 // ============================================================
 async function buildSystemPrompt(): Promise<string> {
+  const now = new Date().toISOString().split('T')[0];
+  const osInfo = `${process.platform} ${process.arch}`;
   const sections = [
-    `You are my-coder, an AI coding agent. Work in ${process.cwd()}.`,
+    `You are my-coder, an AI coding agent.`,
+    `CWD: ${process.cwd()}  |  Date: ${now}  |  OS: ${osInfo}`,
     ``,
     `## Rules`,
-    `- Read files before editing them. Prefer Edit over Write for small changes.`,
-    `- Use Bash for: git, npm, tests, builds, file ops (ls, mkdir, cp, mv, find).`,
-    `- Use Grep for code search, Glob for file search. Grep supports -C for context.`,
-    `- Edit requires exact string match. If it fails with "not found", Read the file first to check whitespace.`,
-    `- Write creates parent directories automatically. Use atomic writes.`,
+    `- Read files before editing them. Edit tool will error if you haven't read the file.`,
+    `- Prefer Edit over Write for small changes. ALWAYS edit existing files; NEVER write new files unless explicitly needed.`,
+    `- When multiple independent tasks can run in parallel, call tools simultaneously.`,
+    `- Write important info from tool results in your response — results may be cleared later.`,
     `- When stuck, explain what you tried and what you need.`,
-    `- Respond in the user's language. Be concise but complete.`,
+    `- Only use emojis if the user explicitly requests it.`,
+    ``,
+    `## Tool Usage`,
+    `- Bash: for git, npm, tests, builds, file ops (ls, mkdir, cp, mv, find). DO NOT use cat/head/tail/sed/awk — use the Read/Edit tools instead; they provide line numbers and better UX.`,
+    `- Read: returns files with line numbers. Supports offset+limit for large files. Detects binary/images.`,
+    `- Edit: exact string replacement. old_string must match exactly (including whitespace). If it fails, Read the file first to verify. Use replace_all for renaming.`,
+    `- Write: creates parent dirs, uses atomic writes. Warning on empty content.`,
+    `- Grep: regex search with -C context lines. Glob: file pattern matching. Both prefer ripgrep (.gitignore-aware).`,
+    ``,
+    `## Git Safety`,
+    `- NEVER update git config, skip hooks (--no-verify), or force push to main/master.`,
+    `- NEVER run destructive commands (push --force, reset --hard, clean -f) unless explicitly asked.`,
+    `- Before committing: run git status + git diff + git log to understand context and match commit style.`,
+    `- Prefer git add <specific files> over git add -A.`,
+    `- NEVER commit unless explicitly asked. NEVER amend commits unless asked.`,
     ``,
     `## Tools`,
-    ...tools.map(t => {
-      const desc = t.name;
-      return `- **${t.name}**: ${desc || 'No description'}`;
-    }),
+    ...tools.map(t => `- **${t.name}**`),
   ];
   return sections.join('\n');
 }
