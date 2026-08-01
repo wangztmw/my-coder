@@ -36,6 +36,15 @@ import type { FileStateCache } from './utils/fileStateCache.js'
 type AgentDefinition = { name: string; description: string }
 type AgentDefinitionsResult = AgentDefinition[]
 
+// Stub types for stripped AppState
+type AppState = Record<string, unknown>;
+type AgentId = string;
+type Notification = { type: string; message: string };
+type FileHistoryState = Record<string, unknown>;
+type AttributionState = Record<string, unknown>;
+type SDKStatus = string;
+type SpinnerMode = string;
+
 export type ToolUseContext = {
   options: {
     commands: Command[]
@@ -52,17 +61,50 @@ export type ToolUseContext = {
     customSystemPrompt?: string
     appendSystemPrompt?: string
     refreshTools?: () => Tools
+    querySource?: string
   }
   abortController: AbortController
   readFileState: FileStateCache
   messages: Message[]
-  fileReadingLimits?: {
-    maxTokens?: number
-    maxSizeBytes?: number
-  }
-  globLimits?: {
-    maxResults?: number
-  }
+  fileReadingLimits?: { maxTokens?: number; maxSizeBytes?: number }
+  globLimits?: { maxResults?: number }
+  // Stripped properties — stub for tool compatibility
+  getAppState?: () => AppState
+  setAppState?: (f: (prev: AppState) => AppState) => void
+  queryTracking?: { chainId: string; depth: number }
+  agentId?: AgentId
+  agentType?: string
+  dynamicSkillDirTriggers?: Set<string>
+  nestedMemoryAttachmentTriggers?: Set<string>
+  setInProgressToolUseIDs?: (f: (prev: Set<string>) => Set<string>) => void
+  setResponseLength?: (f: (prev: number) => number) => void
+  setToolJSX?: (v: unknown) => void
+  setStreamMode?: (mode: SpinnerMode) => void
+  addNotification?: (n: Notification) => void
+  appendSystemMessage?: (msg: Message) => void
+  updateFileHistoryState?: (updater: (prev: FileHistoryState) => FileHistoryState) => void
+  updateAttributionState?: (updater: (prev: AttributionState) => AttributionState) => void
+  setConversationId?: (id: string) => void
+  setSDKStatus?: (status: SDKStatus) => void
+  setHasInterruptibleToolInProgress?: (v: boolean) => void
+  toolUseId?: string
+  userModified?: boolean
+  preserveToolUseResults?: boolean
+  contentReplacementState?: unknown
+  renderedSystemPrompt?: unknown
+  localDenialTracking?: unknown
+  criticalSystemReminder_EXPERIMENTAL?: string
+  requireCanUseTool?: boolean
+  toolDecisions?: Map<string, { source: string; decision: string; timestamp: number }>
+  loadedNestedMemoryPaths?: Set<string>
+  discoveredSkillNames?: Set<string>
+  pushApiMetricsEntry?: (ttftMs: number) => void
+  openMessageSelector?: () => void
+  onCompactProgress?: (event: unknown) => void
+  handleElicitation?: (...args: unknown[]) => Promise<unknown>
+  sendOSNotification?: (opts: { message: string; notificationType: string }) => void
+  requestPrompt?: (...args: unknown[]) => (request: unknown) => Promise<unknown>
+  canUseTool?: (toolName: string, input: Record<string, unknown>) => Promise<boolean>
 }
 
 // ============================================================

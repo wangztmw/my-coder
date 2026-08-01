@@ -12,8 +12,10 @@
     "declaration": false,
     "sourceMap": false,
     "resolveJsonModule": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "jsx": "react",
+    "noImplicitAny": false
   },
-  "include": ["src/main.ts"],
+  "include": ["src/main.ts", "src/tools-bridge.ts"],
   "exclude": ["node_modules"]
 }
