@@ -183,8 +183,15 @@ export function findToolByName(tools: Tools, name: string): Tool | undefined {
 export type Tools = readonly Tool[]
 
 // ============================================================
-// buildTool factory
+// ToolDef and buildTool
 // ============================================================
+export type ToolDef<
+  Input extends z.ZodType<{ [key: string]: unknown }> = z.ZodType<{ [key: string]: unknown }>,
+  Output = unknown,
+> = Partial<Tool<Input, Output>> & { name: string; inputSchema: Input; call: Tool<Input, Output>['call'] }
+
+export type ToolCallProgress = (progress: { toolUseID: string; data: unknown }) => void
+
 const TOOL_DEFAULTS = {
   isEnabled: () => true,
   isConcurrencySafe: (_input?: unknown) => false,
@@ -198,6 +205,14 @@ const TOOL_DEFAULTS = {
 
 type ToolDefaults = typeof TOOL_DEFAULTS
 
-export function buildTool(def: Record<string, unknown>): Record<string, unknown> {
-  return { ...TOOL_DEFAULTS, userFacingName: () => (def as { name: string }).name, ...def }
+export function buildTool<D extends ToolDef>(def: D): Tool {
+  const result = { ...TOOL_DEFAULTS, userFacingName: () => (def as { name: string }).name, ...def }
+  return result as unknown as Tool
+}
+
+// Stub types that tools import from deleted modules
+export type PermissionDecision = {
+  behavior: 'allow' | 'deny' | 'ask'
+  updatedInput?: Record<string, unknown>
+  message?: string
 }
