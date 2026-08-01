@@ -278,32 +278,37 @@ const C = '\x1b[36m';  const c = '\x1b[39m';   // cyan
 const G = '\x1b[90m';                           // gray
 
 function mdToANSI(text: string): string {
-  return text
-    // 代码块
-    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
-      `\n${D}${code.trim()}${d}\n`)
-    // 行内代码
-    .replace(/`([^`]+)`/g, `${D}$1${d}`)
-    // 标题
-    .replace(/^#### (.+)$/gm, `${B}$1${b}`)
-    .replace(/^### (.+)$/gm,  `${B}${U}$1${u}${b}`)
-    .replace(/^## (.+)$/gm,   `${B}${U}$1${u}${b}`)
-    .replace(/^# (.+)$/gm,    `${B}${U}$1${u}${b}`)
-    // 粗体
-    .replace(/\*\*(.+?)\*\*/g, `${B}$1${b}`)
-    // 列表
-    .replace(/^(\s*)- /gm, '  • ')
-    // 表格分隔行（不显示）
-    .replace(/^\|[-| ]+\|$/gm, '')
-    // 表格行 — 保持对齐
-    .replace(/^\|(.+)\|$/gm, (_, row) => {
-      const cells = row.split('|').map((s: string) => s.trim());
-      return '  ' + cells.map((s: string) => s.padEnd(20)).join(' ').trim();
-    })
-    // 水平线
-    .replace(/^---$/gm, `${G}${'─'.repeat(60)}${c}`)
-    // 引用
-    .replace(/^> (.+)$/gm, `${G}│ $1${c}`);
+  // 非TTY(管道/重定向) → 纯文本
+  if (!process.stdout.isTTY) return text.replace(/```[\s\S]*?```/g, '[code]').replace(/[*#`|>-]/g, '');
+
+  let result = text;
+  // 代码块
+  result = result.replace(/```(\w*)\n([\s\S]*?)```/g, (_, _lang, code) =>
+    `\n${D}${code.trim()}${d}\n`);
+  // 行内代码
+  result = result.replace(/`([^`]+)`/g, `${D}$1${d}`);
+  // 粗体
+  result = result.replace(/\*\*(.+?)\*\*/g, `${B}$1${b}`);
+  // 标题（先处理长标题再短，避免###被##误匹配）
+  result = result.replace(/^### (.+)$/gm,  `${B}$1${b}`);
+  result = result.replace(/^## (.+)$/gm,   `${B}$1${b}`);
+  result = result.replace(/^# (.+)$/gm,    `${B}$1${b}`);
+  // 列表
+  result = result.replace(/^(\s*)- /gm, '  • ');
+  // 表格分隔行
+  result = result.replace(/^\|[-| ]+\|$/gm, '');
+  // 表格行
+  result = result.replace(/^\|(.+)\|$/gm, (_, row) => {
+    const cells = row.split('|').map((s: string) => s.trim());
+    return '  ' + cells.map((s: string) => s.padEnd(20)).join(' ').trim();
+  });
+  // 水平线
+  result = result.replace(/^---$/gm, `${G}${'─'.repeat(60)}${c}`);
+  // 引用
+  result = result.replace(/^> (.+)$/gm, `${G}│ $1${c}`);
+  // 安全：删除未配对的ANSI码
+  result = result.replace(/\x1b\[/g, m => (result.indexOf(m) < result.lastIndexOf(m) ? m : ''));
+  return result;
 }
 
 // ============================================================
