@@ -269,6 +269,44 @@ async function runAgent(userInput: string): Promise<string> {
 }
 
 // ============================================================
+// Markdown → ANSI 终端格式化
+// ============================================================
+const B = '\x1b[1m';   const b = '\x1b[22m';   // bold
+const D = '\x1b[2m';   const d = '\x1b[22m';   // dim
+const U = '\x1b[4m';   const u = '\x1b[24m';   // underline
+const C = '\x1b[36m';  const c = '\x1b[39m';   // cyan
+const G = '\x1b[90m';                           // gray
+
+function mdToANSI(text: string): string {
+  return text
+    // 代码块
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+      `\n${D}${code.trim()}${d}\n`)
+    // 行内代码
+    .replace(/`([^`]+)`/g, `${D}$1${d}`)
+    // 标题
+    .replace(/^#### (.+)$/gm, `${B}$1${b}`)
+    .replace(/^### (.+)$/gm,  `${B}${U}$1${u}${b}`)
+    .replace(/^## (.+)$/gm,   `${B}${U}$1${u}${b}`)
+    .replace(/^# (.+)$/gm,    `${B}${U}$1${u}${b}`)
+    // 粗体
+    .replace(/\*\*(.+?)\*\*/g, `${B}$1${b}`)
+    // 列表
+    .replace(/^(\s*)- /gm, '  • ')
+    // 表格分隔行（不显示）
+    .replace(/^\|[-| ]+\|$/gm, '')
+    // 表格行 — 保持对齐
+    .replace(/^\|(.+)\|$/gm, (_, row) => {
+      const cells = row.split('|').map((s: string) => s.trim());
+      return '  ' + cells.map((s: string) => s.padEnd(20)).join(' ').trim();
+    })
+    // 水平线
+    .replace(/^---$/gm, `${G}${'─'.repeat(60)}${c}`)
+    // 引用
+    .replace(/^> (.+)$/gm, `${G}│ $1${c}`);
+}
+
+// ============================================================
 // CLI
 // ============================================================
 async function main() {
@@ -284,7 +322,7 @@ async function main() {
       console.log('');
       const start = Date.now();
       const result = await runAgent(input.trim());
-      console.log(`\n${result}\n[${Date.now() - start}ms]\n`);
+      console.log(`\n${mdToANSI(result)}\n[${Date.now() - start}ms]\n`);
     } catch (e) { console.error(`Error: ${(e as Error).message}\n`); }
   }
   rl.close();
