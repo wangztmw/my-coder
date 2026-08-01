@@ -154,6 +154,8 @@ async function buildSystemPrompt(): Promise<string> {
     `- When stuck, explain what you tried and what you need.`,
     `- Only use emojis if the user explicitly requests it.`,
     `- Before calling tools, briefly say what you're about to do — one short sentence. Between rounds of tools, give a brief status update.`,
+    `- You have full conversation history. You can refer back to anything said earlier — files read, commands run, facts established.`,
+    `- Before repeating a tool call (Bash, Read, Grep), check if you already have the result in the conversation history. Don't re-run the same command.`,
     ``,
     `## Tool Usage`,
     `- Bash: for git, npm, tests, builds, file ops (ls, mkdir, cp, mv, find). DO NOT use cat/head/tail/sed/awk — use the Read/Edit tools instead; they provide line numbers and better UX.`,
