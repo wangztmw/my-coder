@@ -186,11 +186,15 @@ function briefResult(data: string): string {
   return firstLine.length < data.length ? firstLine + '...' : firstLine;
 }
 
+// 跨轮对话——messages 在外面, 每轮追加
+const sessionMessages: ChatMessage[] = [];
+
 async function runAgent(userInput: string): Promise<string> {
-  const messages: ChatMessage[] = [{ role: 'user', content: userInput }];
+  sessionMessages.push({ role: 'user', content: userInput });
   for (let i = 0; i < 25; i++) {
-    const response = await callLLM(SYSTEM_PROMPT, messages);
+    const response = await callLLM(SYSTEM_PROMPT, sessionMessages);
     if (response.stop_reason === 'end_turn') {
+      sessionMessages.push({ role: 'assistant', content: response.content });
       return (response.content as Array<{ type: string; text?: string }>).filter(b => b.type === 'text').map(b => b.text || '').join('\n');
     }
     if (response.stop_reason === 'tool_use') {
@@ -198,7 +202,7 @@ async function runAgent(userInput: string): Promise<string> {
       const thoughts = (response.content as Array<{ type: string; text?: string }>).filter(b => b.type === 'text').map(b => b.text || '').join(' ').trim();
       if (thoughts) console.error(`  ${thoughts.slice(0, 200)}`);
 
-      messages.push({ role: 'assistant', content: response.content });
+      sessionMessages.push({ role: 'assistant', content: response.content });
 
       // Buffer 本轮的 tool_use，用于合并同工具
       interface ToolCall { name: string; id: string; input: Record<string, unknown>; output: string; }
@@ -255,9 +259,9 @@ async function runAgent(userInput: string): Promise<string> {
         }
       }
       if (PROVIDER === 'openai') {
-        for (const tr of toolResults) messages.push(tr as ChatMessage);
+        for (const tr of toolResults) sessionMessages.push(tr as ChatMessage);
       } else {
-        messages.push({ role: 'user', content: toolResults });
+        sessionMessages.push({ role: 'user', content: toolResults });
       }
     } else { return `Unexpected: ${response.stop_reason}`; }
   }
