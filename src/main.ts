@@ -139,9 +139,30 @@ const callLLM = PROVIDER === 'anthropic' ? callLLM_Anthropic : callLLM_OpenAI;
 // ============================================================
 // Agent 循环
 // ============================================================
-const SYSTEM_PROMPT = `You are my-coder, a minimal AI coding assistant.
-You have tools: Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, Task, MCP.
-Use tools when needed. Be concise. Respond in the user's language.`;
+async function buildSystemPrompt(): Promise<string> {
+  const sections = [
+    `You are my-coder, an AI coding agent. Work in ${process.cwd()}.`,
+    ``,
+    `## Rules`,
+    `- Read files before editing them. Prefer Edit over Write for small changes.`,
+    `- Use Bash for: git, npm, tests, builds, file ops (ls, mkdir, cp, mv, find).`,
+    `- Use Grep for code search, Glob for file search. Grep supports -C for context.`,
+    `- Edit requires exact string match. If it fails with "not found", Read the file first to check whitespace.`,
+    `- Write creates parent directories automatically. Use atomic writes.`,
+    `- When stuck, explain what you tried and what you need.`,
+    `- Respond in the user's language. Be concise but complete.`,
+    ``,
+    `## Tools`,
+    ...tools.map(t => {
+      const desc = t.name;
+      return `- **${t.name}**: ${desc || 'No description'}`;
+    }),
+  ];
+  return sections.join('\n');
+}
+
+// 启动时构建，后续会话复用
+let SYSTEM_PROMPT = '';
 
 async function runAgent(userInput: string): Promise<string> {
   const messages: ChatMessage[] = [{ role: 'user', content: userInput }];
@@ -188,6 +209,7 @@ async function runAgent(userInput: string): Promise<string> {
 // CLI
 // ============================================================
 async function main() {
+  SYSTEM_PROMPT = await buildSystemPrompt();
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const ask = (p: string) => new Promise<string>(r => rl.question(p, r));
   while (true) {
