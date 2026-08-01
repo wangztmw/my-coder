@@ -6,7 +6,8 @@
  */
 
 import { createInterface } from 'node:readline';
-import { ALL_TOOLS, executeTool } from './tools-bridge.js';
+import { getAllTools } from './tools-v2/index.js';
+import { z } from 'zod/v4';
 
 // ============================================================
 // Provider 自动检测
@@ -34,23 +35,35 @@ if (API_KEY.startsWith('sk-')) {
 
 const OPENAI_BASE = process.env.OPENAI_BASE_URL || 'https://api.deepseek.com';
 
-console.log(`my-coder v0.2.0`);
-console.log(`Provider: ${PROVIDER}  |  Model: ${MODEL}  |  Tools: ${ALL_TOOLS.length}`);
+const tools = getAllTools();
+console.log(`my-coder v0.3.0`);
+console.log(`Provider: ${PROVIDER}  |  Model: ${MODEL}  |  Tools: ${tools.length}`);
 console.log('Type /help for commands, /exit to quit\n');
 
 // ============================================================
-// Tool 定义 (来自 tools-bridge)
+// Tool 定义 (来自 tools-v2 — Zod → JSON Schema)
 // ============================================================
-const TOOLS_ANTHROPIC = ALL_TOOLS.map(t => ({
+function zodToJSON(schema: z.ZodType): Record<string, unknown> {
+  return (z as unknown as { toJSONSchema: (s: z.ZodType) => Record<string, unknown> }).toJSONSchema(schema);
+}
+
+const TOOLS_ANTHROPIC = tools.map(t => ({
   name: t.name,
   description: t.description,
-  input_schema: t.inputSchema,
+  input_schema: zodToJSON(t.inputSchema),
 }));
 
-const TOOLS_OPENAI = ALL_TOOLS.map(t => ({
+const TOOLS_OPENAI = tools.map(t => ({
   type: 'function' as const,
-  function: { name: t.name, description: t.description, parameters: t.inputSchema },
+  function: { name: t.name, description: t.description, parameters: zodToJSON(t.inputSchema) },
 }));
+
+// 工具执行映射
+const toolMap = new Map(tools.map(t => [t.name, t]));
+const toolContext: import('./tools-v2/Tool.js').ToolUseContext = {
+  options: { tools, verbose: false, isNonInteractiveSession: false, mainLoopModel: MODEL, debug: false },
+  abortController: new AbortController(),
+};
 
 // ============================================================
 // LLM 调用
@@ -144,11 +157,20 @@ async function runAgent(userInput: string): Promise<string> {
         const b = block as { type: string; name?: string; id?: string; input?: Record<string, unknown> };
         if (b.type === 'tool_use' && b.name && b.id) {
           console.error(`  [tool] ${b.name}...`);
-          const result = executeTool(b.name, b.input || {});
-          if (PROVIDER === 'openai') {
-            toolResults.push({ role: 'tool', tool_call_id: b.id, content: result.error ? `Error: ${result.error}` : result.content });
+          const tool = toolMap.get(b.name);
+          let toolOutput: string;
+          if (tool) {
+            try {
+              const result = await tool.call(b.input || {}, toolContext);
+              toolOutput = typeof result.data === 'string' ? result.data : JSON.stringify(result.data);
+            } catch (e) { toolOutput = `Tool error: ${(e as Error).message}`; }
           } else {
-            toolResults.push({ type: 'tool_result', tool_use_id: b.id, content: result.error ? `Error: ${result.error}` : result.content });
+            toolOutput = `Unknown tool: ${b.name}`;
+          }
+          if (PROVIDER === 'openai') {
+            toolResults.push({ role: 'tool', tool_call_id: b.id, content: toolOutput });
+          } else {
+            toolResults.push({ type: 'tool_result', tool_use_id: b.id, content: toolOutput });
           }
         }
       }
@@ -172,7 +194,7 @@ async function main() {
     const input = await ask('> ');
     if (!input.trim()) continue;
     if (input.trim() === '/exit' || input.trim() === '/quit') break;
-    if (input.trim() === '/help') { console.log(`Tools: ${ALL_TOOLS.map(t => t.name).join(', ')}\nCommands: /exit, /help`); continue; }
+    if (input.trim() === '/help') { console.log(`Tools: ${tools.map(t => t.name).join(', ')}\nCommands: /exit, /help`); continue; }
     try {
       console.log('');
       const start = Date.now();

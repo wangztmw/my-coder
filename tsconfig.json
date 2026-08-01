@@ -16,6 +16,6 @@
     "jsx": "react",
     "noImplicitAny": false
   },
-  "include": ["src/main.ts", "src/tools-bridge.ts"],
+  "include": ["src/main.ts", "src/tools-v2/**/*.ts"],
   "exclude": ["node_modules"]
 }
