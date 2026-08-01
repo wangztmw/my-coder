@@ -153,6 +153,7 @@ async function buildSystemPrompt(): Promise<string> {
     `- Write important info from tool results in your response — results may be cleared later.`,
     `- When stuck, explain what you tried and what you need.`,
     `- Only use emojis if the user explicitly requests it.`,
+    `- Before calling tools, briefly say what you're about to do — one short sentence. Between rounds of tools, give a brief status update.`,
     ``,
     `## Tool Usage`,
     `- Bash: for git, npm, tests, builds, file ops (ls, mkdir, cp, mv, find). DO NOT use cat/head/tail/sed/awk — use the Read/Edit tools instead; they provide line numbers and better UX.`,
@@ -177,6 +178,12 @@ async function buildSystemPrompt(): Promise<string> {
 // 启动时构建，后续会话复用
 let SYSTEM_PROMPT = '';
 
+// 摘要一行工具结果
+function briefResult(data: string): string {
+  const firstLine = data.split('\n')[0].slice(0, 80);
+  return firstLine.length < data.length ? firstLine + '...' : firstLine;
+}
+
 async function runAgent(userInput: string): Promise<string> {
   const messages: ChatMessage[] = [{ role: 'user', content: userInput }];
   for (let i = 0; i < 25; i++) {
@@ -185,27 +192,64 @@ async function runAgent(userInput: string): Promise<string> {
       return (response.content as Array<{ type: string; text?: string }>).filter(b => b.type === 'text').map(b => b.text || '').join('\n');
     }
     if (response.stop_reason === 'tool_use') {
+      // 打印 assistant 的思考文字
+      const thoughts = (response.content as Array<{ type: string; text?: string }>).filter(b => b.type === 'text').map(b => b.text || '').join(' ').trim();
+      if (thoughts) console.error(`  ${thoughts.slice(0, 200)}`);
+
       messages.push({ role: 'assistant', content: response.content });
-      const toolResults: Array<unknown> = [];
+
+      // Buffer 本轮的 tool_use，用于合并同工具
+      interface ToolCall { name: string; id: string; input: Record<string, unknown>; output: string; }
+      const calls: ToolCall[] = [];
+
       for (const block of response.content) {
         const b = block as { type: string; name?: string; id?: string; input?: Record<string, unknown> };
         if (b.type === 'tool_use' && b.name && b.id) {
-          console.error(`  [tool] ${b.name}...`);
           const tool = toolMap.get(b.name);
           let toolOutput: string;
           if (tool) {
             try {
               const result = await tool.call(b.input || {}, toolContext);
               toolOutput = typeof result.data === 'string' ? result.data : JSON.stringify(result.data);
-            } catch (e) { toolOutput = `Tool error: ${(e as Error).message}`; }
+            } catch (e) { toolOutput = `Error: ${(e as Error).message}`; }
           } else {
             toolOutput = `Unknown tool: ${b.name}`;
           }
-          if (PROVIDER === 'openai') {
-            toolResults.push({ role: 'tool', tool_call_id: b.id, content: toolOutput });
-          } else {
-            toolResults.push({ type: 'tool_result', tool_use_id: b.id, content: toolOutput });
-          }
+          calls.push({ name: b.name, id: b.id, input: b.input || {}, output: toolOutput });
+        }
+      }
+
+      // 合并同工具连续调用 + 输出
+      const merged: Array<{ name: string; count: number; inputs: string[]; lines: number; sample: string }> = [];
+      for (const c of calls) {
+        const last = merged[merged.length - 1];
+        let summary = toolMap.get(c.name)?.getToolUseSummary?.(c.input as never) || c.name;
+        // 去掉工具名前缀 (如 "Bash: ls" → "ls")
+        if (summary.startsWith(c.name + ': ')) summary = summary.slice(c.name.length + 2);
+        else if (summary.startsWith(c.name + ' ')) summary = summary.slice(c.name.length + 1);
+        if (last && last.name === c.name) {
+          last.count++;
+          last.inputs.push(summary);
+          const lc = c.output.split('\n').length;
+          last.lines += lc;
+        } else {
+          merged.push({ name: c.name, count: 1, inputs: [summary], lines: c.output.split('\n').length, sample: briefResult(c.output) });
+        }
+      }
+      for (const m of merged) {
+        const label = m.count > 1 ? `${m.name} ×${m.count}` : m.name;
+        const params = m.inputs.join(', ');
+        const info = m.count > 1 ? `(${m.lines} lines total)` : `→ ${m.sample}`;
+        console.error(`  ● ${label}: ${params}  ${info}`);
+      }
+
+      // 组装 toolResults
+      const toolResults: Array<unknown> = [];
+      for (const c of calls) {
+        if (PROVIDER === 'openai') {
+          toolResults.push({ role: 'tool', tool_call_id: c.id, content: c.output });
+        } else {
+          toolResults.push({ type: 'tool_result', tool_use_id: c.id, content: c.output });
         }
       }
       if (PROVIDER === 'openai') {
