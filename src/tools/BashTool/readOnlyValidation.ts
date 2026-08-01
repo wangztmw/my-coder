@@ -1208,7 +1208,7 @@ function getCommandAllowlist(): Record<string, CommandConfig> {
     const { xargs: _, ...rest } = allowlist
     allowlist = rest
   }
-  if (process.env.USER_TYPE === 'ant') {
+  if (false) {
     return { ...allowlist, ...ANT_ONLY_COMMAND_ALLOWLIST }
   }
   return allowlist
