@@ -1,7 +1,15 @@
+/**
+ * my-coder — Cleaned Task types
+ *
+ * 删除 AppState 依赖（已删除模块），用最小 stub 替代。
+ */
+
 import { randomBytes } from 'crypto'
-import type { AppState } from './state/AppState.js'
-import type { AgentId } from './types/ids.js'
 import { getTaskOutputPath } from './utils/task/diskOutput.js'
+
+// Stub: AppState was deleted
+type AppState = Record<string, unknown>
+type AgentId = string
 
 export type TaskType =
   | 'local_bash'
@@ -19,11 +27,6 @@ export type TaskStatus =
   | 'failed'
   | 'killed'
 
-/**
- * True when a task is in a terminal state and will not transition further.
- * Used to guard against injecting messages into dead teammates, evicting
- * finished tasks from AppState, and orphan-cleanup paths.
- */
 export function isTerminalTaskStatus(status: TaskStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'killed'
 }
@@ -41,7 +44,6 @@ export type TaskContext = {
   setAppState: SetAppState
 }
 
-// Base fields shared by all task states
 export type TaskStateBase = {
   id: string
   type: TaskType
@@ -62,22 +64,17 @@ export type LocalShellSpawnInput = {
   timeout?: number
   toolUseId?: string
   agentId?: AgentId
-  /** UI display variant: description-as-label, dialog title, status bar pill. */
   kind?: 'bash' | 'monitor'
 }
 
-// What getTaskByType dispatches for: kill. spawn/render were never
-// called polymorphically (removed in #22546). All six kill implementations
-// use only setAppState — getAppState/abortController were dead weight.
 export type Task = {
   name: string
   type: TaskType
   kill(taskId: string, setAppState: SetAppState): Promise<void>
 }
 
-// Task ID prefixes
 const TASK_ID_PREFIXES: Record<string, string> = {
-  local_bash: 'b', // Keep as 'b' for backward compatibility
+  local_bash: 'b',
   local_agent: 'a',
   remote_agent: 'r',
   in_process_teammate: 't',
@@ -86,13 +83,10 @@ const TASK_ID_PREFIXES: Record<string, string> = {
   dream: 'd',
 }
 
-// Get task ID prefix
 function getTaskIdPrefix(type: TaskType): string {
   return TASK_ID_PREFIXES[type] ?? 'x'
 }
 
-// Case-insensitive-safe alphabet (digits + lowercase) for task IDs.
-// 36^8 ≈ 2.8 trillion combinations, sufficient to resist brute-force symlink attacks.
 const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
 
 export function generateTaskId(type: TaskType): string {

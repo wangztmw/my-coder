@@ -1,17 +1,20 @@
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/index.mjs'
 import type { UUID } from 'crypto'
-import type { CanUseToolFn } from '../hooks/useCanUseTool.js'
-import type { CompactionResult } from '../services/compact/compact.js'
-import type { ScopedMcpServerConfig } from '../services/mcp/types.js'
+// Stubs for deleted modules
+type CanUseToolFn = (toolName: string, input: Record<string, unknown>) => Promise<boolean>
+type EffortValue = string
+type IdeType = string
+type ThemeName = string
+type LogOption = Record<string, unknown>
+type PluginManifest = Record<string, unknown>
+type CompactionResult = unknown
+type ScopedMcpServerConfig = Record<string, unknown>
+type IDEExtensionInstallationStatus = unknown
+type SettingSource = string
+type HooksSettings = Record<string, unknown>
+
 import type { ToolUseContext } from '../Tool.js'
-import type { EffortValue } from '../utils/effort.js'
-import type { IDEExtensionInstallationStatus, IdeType } from '../utils/ide.js'
-import type { SettingSource } from '../utils/settings/constants.js'
-import type { HooksSettings } from '../utils/settings/types.js'
-import type { ThemeName } from '../utils/theme.js'
-import type { LogOption } from './logs.js'
 import type { Message } from './message.js'
-import type { PluginManifest } from './plugin.js'
 
 export type LocalCommandResult =
   | { type: 'text'; value: string }
