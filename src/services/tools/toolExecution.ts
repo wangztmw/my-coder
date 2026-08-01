@@ -1,33 +1,16 @@
-import { feature } from 'bun:bundle'
+// feature() import removed
 import type {
   ContentBlockParam,
   ToolResultBlockParam,
   ToolUseBlock,
 } from '@anthropic-ai/sdk/resources/index.mjs'
-import {
-  type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-  logEvent,
-} from 'src/services/analytics/index.js'
-import {
-  extractMcpToolDetails,
-  extractSkillName,
-  extractToolInputForTelemetry,
-  getFileExtensionForAnalytics,
-  getFileExtensionsFromBashCommand,
-  isToolDetailsLoggingEnabled,
-  mcpToolDetailsForAnalytics,
-  sanitizeToolNameForAnalytics,
-} from 'src/services/analytics/metadata.js'
-import {
-  addToToolDuration,
-  getCodeEditToolDecisionCounter,
-  getStatsStore,
-} from '../../bootstrap/state.js'
-import {
-  buildCodeEditToolAttributes,
-  isCodeEditingTool,
-} from '../../hooks/toolPermission/permissionLogging.js'
-import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
+
+// Stubs for deleted analytics/bootstrap modules
+const sanitizeToolNameForAnalytics = (name: string) => name;
+const logEvent = (..._args: unknown[]) => {};
+const mcpToolDetailsForAnalytics = (..._args: unknown[]) => ({});
+const getStatsStore = () => null;
+
 import {
   findToolByName,
   type Tool,
@@ -41,8 +24,6 @@ import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
 import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
 import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/prompt.js'
-import { NOTEBOOK_EDIT_TOOL_NAME } from '../../tools/NotebookEditTool/constants.js'
-import { POWERSHELL_TOOL_NAME } from '../../tools/PowerShellTool/toolName.js'
 import { parseGitCommitId } from '../../tools/shared/gitOperationTracking.js'
 import {
   isDeferredTool,
@@ -1073,7 +1054,7 @@ async function checkPermissionsAndCallTool(
     // Run PermissionDenied hooks for auto mode classifier denials.
     // If a hook returns {retry: true}, tell the model it may retry.
     if (
-      feature('TRANSCRIPT_CLASSIFIER') &&
+      true &&
       permissionDecision.decisionReason?.type === 'classifier' &&
       permissionDecision.decisionReason.classifier === 'auto-mode'
     ) {
@@ -1313,7 +1294,6 @@ async function checkPermissionsAndCallTool(
           String(processedInput.file_path),
         )
       } else if (
-        tool.name === NOTEBOOK_EDIT_TOOL_NAME &&
         'notebook_path' in processedInput
       ) {
         fileExtension = getFileExtensionForAnalytics(
@@ -1359,7 +1339,6 @@ async function checkPermissionsAndCallTool(
     // Enrich tool parameters with git commit ID from successful git commit output
     if (
       isToolDetailsLoggingEnabled() &&
-      (tool.name === BASH_TOOL_NAME || tool.name === POWERSHELL_TOOL_NAME) &&
       'command' in processedInput &&
       typeof processedInput.command === 'string' &&
       processedInput.command.match(/\bgit\s+commit\b/) &&

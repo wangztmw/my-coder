@@ -1,10 +1,6 @@
-import {
-  type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-  logEvent,
-} from 'src/services/analytics/index.js'
-import { sanitizeToolNameForAnalytics } from 'src/services/analytics/metadata.js'
+// analytics import removed
 import type z from 'zod/v4'
-import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
+type CanUseToolFn = (toolName: string, input: Record<string, unknown>) => Promise<boolean>
 import type { AnyObject, Tool, ToolUseContext } from '../../Tool.js'
 import type { HookProgress } from '../../types/hooks.js'
 import type {

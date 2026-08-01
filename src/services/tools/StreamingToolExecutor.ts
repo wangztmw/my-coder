@@ -4,7 +4,7 @@ import {
   REJECT_MESSAGE,
   withMemoryCorrectionHint,
 } from 'src/utils/messages.js'
-import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
+type CanUseToolFn = (toolName: string, input: Record<string, unknown>) => Promise<boolean>
 import { findToolByName, type Tools, type ToolUseContext } from '../../Tool.js'
 import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
 import type { AssistantMessage, Message } from '../../types/message.js'

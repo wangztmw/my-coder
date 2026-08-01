@@ -1,4 +1,4 @@
-import { feature } from 'bun:bundle'
+// feature() removed
 import type {
   Base64ImageSource,
   ContentBlockParam,
@@ -40,7 +40,7 @@ import mapValues from 'lodash-es/mapValues.js'
 import memoize from 'lodash-es/memoize.js'
 import zipObject from 'lodash-es/zipObject.js'
 import pMap from 'p-map'
-import { getOriginalCwd, getSessionId } from '../../bootstrap/state.js'
+const getSessionId = () => 'mycoder-session'; const getOriginalCwd = () => process.cwd()
 import type { Command } from '../../commands.js'
 import { getOauthConfig } from '../../constants/oauth.js'
 import { PRODUCT_URL } from '../../constants/product.js'
@@ -114,7 +114,7 @@ import { normalizeNameForMCP } from './normalization.js'
 import { getLoggingSafeMcpBaseUrl } from './utils.js'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const fetchMcpSkillsForClient = feature('MCP_SKILLS')
+const fetchMcpSkillsForClient = false
   ? (
       require('../../skills/mcpSkills.js') as typeof import('../../skills/mcpSkills.js')
     ).fetchMcpSkillsForClient
@@ -238,11 +238,11 @@ const claudeInChromeToolRendering =
 // Lazy: wrapper.tsx → hostAdapter.ts → executor.ts pulls both native modules
 // (@ant/computer-use-input + @ant/computer-use-swift). Runtime-gated by
 // GrowthBook tengu_malort_pedway (see gates.ts).
-const computerUseWrapper = feature('CHICAGO_MCP')
+const computerUseWrapper = false
   ? (): typeof import('../../utils/computerUse/wrapper.js') =>
       require('../../utils/computerUse/wrapper.js')
   : undefined
-const isComputerUseMCPServer = feature('CHICAGO_MCP')
+const isComputerUseMCPServer = false
   ? (
       require('../../utils/computerUse/common.js') as typeof import('../../utils/computerUse/common.js')
     ).isComputerUseMCPServer
@@ -923,7 +923,7 @@ export const connectToServer = memoize(
         transport = clientTransport
         logMCPDebug(name, `In-process Chrome MCP server started`)
       } else if (
-        feature('CHICAGO_MCP') &&
+        false &&
         (serverRef.type === 'stdio' || !serverRef.type) &&
         isComputerUseMCPServer!(name)
       ) {
@@ -1389,7 +1389,7 @@ export const connectToServer = memoize(
         fetchToolsForClient.cache.delete(name)
         fetchResourcesForClient.cache.delete(name)
         fetchCommandsForClient.cache.delete(name)
-        if (feature('MCP_SKILLS')) {
+        if (false) {
           fetchMcpSkillsForClient!.cache.delete(name)
         }
 
@@ -1667,7 +1667,7 @@ export async function clearServerCache(
   fetchToolsForClient.cache.delete(name)
   fetchResourcesForClient.cache.delete(name)
   fetchCommandsForClient.cache.delete(name)
-  if (feature('MCP_SKILLS')) {
+  if (false) {
     fetchMcpSkillsForClient!.cache.delete(name)
   }
 }
@@ -1980,7 +1980,7 @@ export const fetchToolsForClient = memoizeWithLRU(
                   tool.name,
                 )
               : {}),
-            ...(feature('CHICAGO_MCP') &&
+            ...(false &&
             (client.config.type === 'stdio' || !client.config.type) &&
             isComputerUseMCPServer!(client.name)
               ? computerUseWrapper!().getComputerUseMCPToolOverrides(tool.name)
@@ -2171,7 +2171,7 @@ export async function reconnectMcpServerImpl(
     const [tools, mcpCommands, mcpSkills, resources] = await Promise.all([
       fetchToolsForClient(client),
       fetchCommandsForClient(client),
-      feature('MCP_SKILLS') && supportsResources
+      false && supportsResources
         ? fetchMcpSkillsForClient!(client)
         : Promise.resolve([]),
       supportsResources ? fetchResourcesForClient(client) : Promise.resolve([]),
@@ -2345,7 +2345,7 @@ export async function getMcpToolsCommandsAndResources(
         fetchToolsForClient(client),
         fetchCommandsForClient(client),
         // Discover skills from skill:// resources
-        feature('MCP_SKILLS') && supportsResources
+        false && supportsResources
           ? fetchMcpSkillsForClient!(client)
           : Promise.resolve([]),
         // Fetch resources if supported

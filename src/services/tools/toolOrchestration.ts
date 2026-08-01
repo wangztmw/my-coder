@@ -1,5 +1,5 @@
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
-import type { CanUseToolFn } from '../../hooks/useCanUseTool.js'
+type CanUseToolFn = (toolName: string, input: Record<string, unknown>) => Promise<boolean>
 import { findToolByName, type ToolUseContext } from '../../Tool.js'
 import type { AssistantMessage, Message } from '../../types/message.js'
 import { all } from '../../utils/generators.js'
