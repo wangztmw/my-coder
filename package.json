@@ -4,11 +4,11 @@
   "description": "Minimal Claude Code runtime — stripped, independent, research-grade",
   "private": true,
   "type": "module",
-  "main": "dist/main.js",
+  "main": "dist/Mycoder.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/main.js",
-    "dev": "npx tsx src/main.ts"
+    "start": "node dist/Mycoder.js",
+    "dev": "npx tsx src/Mycoder.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",
