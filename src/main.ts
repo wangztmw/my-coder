@@ -159,6 +159,7 @@ async function buildSystemPrompt(): Promise<string> {
     `- CRITICAL: When given a task that requires tools (reading files, running commands, spawning agents, searching), you MUST call the tools. Do not just describe what you would do — actually do it. Say what you're doing in one short sentence, then immediately call the tools in the same response.`,
     `- You have full conversation history. You can refer back to anything said earlier — files read, commands run, facts established.`,
     `- Before repeating a tool call (Bash, Read, Grep), check if you already have the result in the conversation history. Don't re-run the same command.`,
+    `- When background agents are running, periodically call Task(list) to check progress. If agents seem stuck, use Task(check) to see what they're doing. Use Task(wait) with a short timeout to batch-check completion.`,
     ``,
     `## Tool Usage`,
     `- Bash: for git, npm, tests, builds, file ops (ls, mkdir, cp, mv, find). DO NOT use cat/head/tail/sed/awk — use the Read/Edit tools instead; they provide line numbers and better UX.`,
@@ -348,6 +349,9 @@ async function runSubAgent(messages: ChatMessage[], agentId: string): Promise<st
             task.agentLoop.lastActivity = `${b.name}(${summary})`;
             task.agentLoop.lastOutput = out.slice(0, 200);
           }
+          // 子Agent进度打到stderr
+          const label = task?.subject || agentId;
+          console.error(`    [${label}] ${b.name}(${tool?.getToolUseSummary?.(b.input || {}) || b.name})`);
           toolResults.push(PROVIDER === 'openai'
             ? { role: 'tool', tool_call_id: b.id, content: out }
             : { type: 'tool_result', tool_use_id: b.id, content: out });
