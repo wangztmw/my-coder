@@ -137,7 +137,21 @@ async function callLLM_OpenAI(
   return { content, stop_reason: (choice.finish_reason as string) === 'tool_calls' ? 'tool_use' : 'end_turn' };
 }
 
-const callLLM = PROVIDER === 'anthropic' ? callLLM_Anthropic : callLLM_OpenAI;
+const _callLLM = PROVIDER === 'anthropic' ? callLLM_Anthropic : callLLM_OpenAI;
+let _thinkStart = 0;
+let _isSubAgent = false;
+async function callLLM(prompt: string, messages: ChatMessage[]) {
+  _thinkStart = Date.now();
+  if (!_isSubAgent) process.stderr.write('  ● Thinking...');
+  const result = await _callLLM(prompt, messages);
+  if (!_isSubAgent) {
+    const elapsed = ((Date.now() - _thinkStart) / 1000).toFixed(1);
+    const toolCount = (result.content as Array<{ type: string }>).filter(b => b.type === 'tool_use').length;
+    const hint = toolCount > 0 ? ` → ${toolCount} tool${toolCount > 1 ? 's' : ''}` : '';
+    process.stderr.write(`\r  ● Thinking (${elapsed}s)${hint}\n`);
+  }
+  return result;
+}
 
 // ============================================================
 // Agent 循环
@@ -308,7 +322,7 @@ function buildSubAgentContext(taskPrompt: string): ChatMessage[] {
 async function runSubAgent(messages: ChatMessage[], agentId: string): Promise<string> {
   const task = taskRegistry.get(agentId);
   if (task) task.status = 'running';
-  let errors = 0;
+  _isSubAgent = true;
   try {
   for (let i = 0; i < 10; i++) {
     // 主Agent注入的新指令 → 下轮LLM调用立即看到
@@ -365,6 +379,8 @@ async function runSubAgent(messages: ChatMessage[], agentId: string): Promise<st
   } catch (e) {
     console.error(`  ✗ Sub-agent ${task?.subject || agentId} crashed: ${(e as Error).message}`);
     return `(crashed: ${(e as Error).message})`;
+  } finally {
+    _isSubAgent = false;
   }
 }
 
