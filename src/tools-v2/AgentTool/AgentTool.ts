@@ -19,6 +19,7 @@ let _sessionMessages: any[] | null = null;
 let _createTask: ((type: any, desc: string) => any) | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _completeTask: ((id: string, out: string) => void) | null = null;
+let _getActiveCount: (() => number) | null = null;
 
 export function initSubAgent(deps: {
   runSubAgent: NonNullable<typeof _runSubAgent>;
@@ -26,12 +27,14 @@ export function initSubAgent(deps: {
   sessionMessages: NonNullable<typeof _sessionMessages>;
   createTask: NonNullable<typeof _createTask>;
   completeTask: NonNullable<typeof _completeTask>;
+  getActiveCount: NonNullable<typeof _getActiveCount>;
 }) {
   _runSubAgent = deps.runSubAgent;
   _buildSubAgentContext = deps.buildSubAgentContext;
   _sessionMessages = deps.sessionMessages;
   _createTask = deps.createTask;
   _completeTask = deps.completeTask;
+  _getActiveCount = deps.getActiveCount;
 }
 
 export const AgentTool = buildTool({
@@ -52,10 +55,10 @@ export const AgentTool = buildTool({
       const task = _createTask('local_agent', description);
       _runSubAgent(messages, task.id).then(result => {
         _completeTask!(task.id, result);
-        _sessionMessages!.push({
-          role: 'user',
-          content: `[Agent "${description}" completed]:\n${result.slice(0, 1000)}`,
-        });
+        const active = _getActiveCount?.() ?? 0;
+        const note = `[Agent "${description}" completed${active > 0 ? ` — ${active} agent${active > 1 ? 's' : ''} still running` : ''}]:\n${result.slice(0, 1000)}`;
+        _sessionMessages!.push({ role: 'user', content: note });
+        console.error(`  ✓ "${description}" done. ${active} agent${active !== 1 ? 's' : ''} running.`);
       });
       return { data: `Agent spawned: ${task.id} ("${description}" running in background)` };
     }

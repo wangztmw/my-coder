@@ -380,7 +380,9 @@ function mdToANSI(text: string): string {
 // ============================================================
 async function main() {
   SYSTEM_PROMPT = await buildSystemPrompt();
-  initSubAgent({ runSubAgent, buildSubAgentContext, sessionMessages, createTask, completeTask });
+  initSubAgent({ runSubAgent, buildSubAgentContext, sessionMessages, createTask, completeTask,
+    getActiveCount: () => [...taskRegistry.values()].filter(t => t.status === 'running').length,
+  });
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const ask = (p: string) => new Promise<string>(r => rl.question(p, r));
   while (true) {
