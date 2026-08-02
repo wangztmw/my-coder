@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import * as path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { buildTool, type ToolUseContext, type ToolResult } from '../Tool.js';
 import { DESCRIPTION } from './prompt.js';
@@ -14,15 +15,51 @@ const inputSchema = z.object({
 let _bgHooks: { createTask: (t: string, d: string) => any; completeTask: (id: string, o: string) => void; notify: (msg: string) => void } | null = null;
 export function initBashBg(hooks: { createTask: (t: string, d: string) => any; completeTask: (id: string, o: string) => void; notify: (msg: string) => void }) { _bgHooks = hooks; }
 
-// 危险命令检测
+// ============================================================
+// Phase 46: Agent 自保机制
+// ============================================================
+
+// 自 PID 感知
+const SELF_PID = process.pid;
+const SELF_SCRIPT = process.argv[1] || '';
+const SELF_BASENAME = path.basename(SELF_SCRIPT);
+const SELF_IDENTITY: string[] = [
+  SELF_BASENAME,
+  SELF_BASENAME.replace(/\.[^.]+$/, ''), // 去掉扩展名
+].filter(Boolean);
+
+/** 检查命令是否引用了自身进程标识（如 kill/pkill + "main.js"/"dist"等） */
+function targetsSelf(command: string): boolean {
+  const killVerbs = /\b(kill|pkill|killall|SIGTERM|SIGKILL)\b/i;
+  if (!killVerbs.test(command)) return false;
+  const patterns = SELF_IDENTITY
+    .map(id => { try { return new RegExp(`\\b${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'); } catch { return null; } })
+    .filter(Boolean) as RegExp[];
+  return patterns.some(p => p.test(command));
+}
+
+// 原有：文件系统破坏模式
 const DANGEROUS_PATTERNS = [
-  { pattern: /rm\s+(-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*)\s*\/\b/, msg: 'recursive force delete from root' },
+  { pattern: /rm\s+(-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*)\s*\/(\b|$|\s)/, msg: 'recursive force delete from root' },
   { pattern: /rm\s+(-[a-z]*r[a-z]*f[a-z]*)\s*~\b/, msg: 'recursive force delete from home' },
   { pattern: />\s*\/dev\/sd[a-z]\d*/, msg: 'overwriting raw disk device' },
   { pattern: /mkfs\./, msg: 'creating filesystem (destroys data)' },
   { pattern: /dd\s+if=.*of=\/dev\//, msg: 'writing raw image to disk device' },
-  { pattern: /:\s*\{\s*:\|:\s*&\s*\};/, msg: 'fork bomb pattern' },
+  { pattern: /:\s*\(\)\s*\{\s*:\|:\s*&\s*\};/, msg: 'fork bomb pattern' },
   { pattern: /chmod\s+(-R\s+)?777\s*\/\b/, msg: 'world-writable permissions on root' },
+  // Phase 46 新增：系统级破坏
+  { pattern: /\bkill\b\s+-9\s+1\b/, msg: 'SIGKILL on PID 1 (init/systemd)' },
+  { pattern: /\breboot\b/, msg: 'system reboot' },
+  { pattern: /\bshutdown\b/, msg: 'system shutdown' },
+];
+
+// Phase 46 新增：进程管理命令拦截（广播式杀进程 = 永远不应由 Agent 使用）
+const PROCESS_MANAGEMENT_BLOCKED = [
+  { pattern: /\bpkill\b/, msg: 'broadcast kill by name (pkill). Use task management system instead of shell process commands.' },
+  { pattern: /\bkillall\b/, msg: 'broadcast kill by name (killall). Use task management system instead of shell process commands.' },
+  { pattern: /\bps\b.*\|.*\bxargs\b.*\bkill\b/, msg: 'ps + xargs kill pipeline. Use task management system instead of shell process commands.' },
+  { pattern: /\bpgrep\b.*\|.*\bxargs\b.*\bkill\b/, msg: 'pgrep + xargs kill pipeline. Use task management system instead.' },
+  { pattern: /\bkill\b\s*-9\b/, msg: 'SIGKILL (-9) is too forceful. Use task management (TaskTool kill) for sub-agents or SIGTERM with exact PID for known processes.' },
 ];
 
 export const BashTool = buildTool({
@@ -32,7 +69,19 @@ export const BashTool = buildTool({
   isReadOnly: () => false,
 
   async call({ command, description, timeout, run_in_background }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
-    // 危险命令检查
+    // Phase 46: 进程管理命令拦截（广播式杀进程）
+    for (const { pattern, msg } of PROCESS_MANAGEMENT_BLOCKED) {
+      if (pattern.test(command)) {
+        return { data: `BLOCKED: Unsafe process management — ${msg}\nCommand: ${command}\n\nYour PID is ${SELF_PID}. To manage sub-agents, use TaskTool (kill). For background bash tasks, use run_in_background.` };
+      }
+    }
+
+    // Phase 46: 自引用检测
+    if (targetsSelf(command)) {
+      return { data: `BLOCKED: This command appears to target your own process (PID ${SELF_PID}).\nCommand: ${command}\n\nNever kill or signal your own process. Use /exit or /quit to stop, or TaskTool to manage sub-agents.` };
+    }
+
+    // 危险命令检查（文件系统 / 系统级破坏）
     for (const { pattern, msg } of DANGEROUS_PATTERNS) {
       if (pattern.test(command)) {
         return { data: `BLOCKED: Dangerous command detected — ${msg}.\nCommand: ${command}` };
