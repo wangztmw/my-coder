@@ -7,6 +7,7 @@
 
 import { createInterface } from 'node:readline';
 import { getAllTools } from './tools-v2/index.js';
+import { initSubAgent } from './tools-v2/AgentTool/AgentTool.js';
 import { z } from 'zod/v4';
 
 // ============================================================
@@ -269,6 +270,69 @@ async function runAgent(userInput: string): Promise<string> {
 }
 
 // ============================================================
+// Task 系统 — 最小异步任务管理
+// ============================================================
+type TaskType = 'local_bash' | 'local_agent';
+type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
+interface TaskState { id: string; type: TaskType; status: TaskStatus; description: string; startTime: number; endTime?: number; output?: string; }
+const taskRegistry = new Map<string, TaskState>();
+
+function createTask(type: TaskType, description: string): TaskState {
+  const id = type[0] + Math.random().toString(36).slice(2, 10);
+  const task: TaskState = { id, type, status: 'running', description, startTime: Date.now() };
+  taskRegistry.set(id, task);
+  return task;
+}
+
+function completeTask(id: string, output: string) {
+  const t = taskRegistry.get(id); if (t) { t.status = 'completed'; t.endTime = Date.now(); t.output = output; }
+}
+
+// ============================================================
+// 子Agent引擎
+// ============================================================
+const SUB_AGENT_PROMPT = 'You are a sub-agent. Complete the assigned task using the available tools. Return a concise report of what was done and any key findings. Do not ask questions — just complete the work and report.';
+
+function buildSubAgentContext(taskPrompt: string): ChatMessage[] {
+  return [{ role: 'user', content: `Complete this task:\n${taskPrompt}\n\nReturn a concise report.` }];
+}
+
+async function runSubAgent(messages: ChatMessage[], taskId?: string): Promise<string> {
+  if (taskId) { const t = taskRegistry.get(taskId); if (t) t.status = 'running'; }
+  for (let i = 0; i < 10; i++) {
+    const response = await callLLM(SUB_AGENT_PROMPT, messages);
+    if (response.stop_reason === 'end_turn') {
+      const text = (response.content as Array<{ type: string; text?: string }>)
+        .filter(b => b.type === 'text').map(b => b.text || '').join('\n');
+      if (taskId) completeTask(taskId, text);
+      return text || '(done)';
+    }
+    if (response.stop_reason === 'tool_use') {
+      messages.push({ role: 'assistant', content: response.content });
+      const toolResults: Array<unknown> = [];
+      for (const block of response.content) {
+        const b = block as { type: string; name?: string; id?: string; input?: Record<string, unknown> };
+        if (b.type === 'tool_use' && b.name && b.id) {
+          const tool = toolMap.get(b.name);
+          let out = '';
+          if (tool) {
+            try { const r = await tool.call(b.input || {}, toolContext); out = typeof r.data === 'string' ? r.data : JSON.stringify(r.data); }
+            catch (e) { out = `Error: ${(e as Error).message}`; }
+          } else { out = `Unknown: ${b.name}`; }
+          toolResults.push(PROVIDER === 'openai'
+            ? { role: 'tool', tool_call_id: b.id, content: out }
+            : { type: 'tool_result', tool_use_id: b.id, content: out });
+        }
+      }
+      messages.push(PROVIDER === 'openai'
+        ? toolResults[toolResults.length - 1] as ChatMessage
+        : { role: 'user', content: toolResults } as ChatMessage);
+    }
+  }
+  return '(max iterations)';
+}
+
+// ============================================================
 // Markdown → ANSI 终端格式化
 // ============================================================
 const B = '\x1b[1m';   const b = '\x1b[22m';   // bold
@@ -316,6 +380,7 @@ function mdToANSI(text: string): string {
 // ============================================================
 async function main() {
   SYSTEM_PROMPT = await buildSystemPrompt();
+  initSubAgent({ runSubAgent, buildSubAgentContext, sessionMessages, createTask, completeTask });
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const ask = (p: string) => new Promise<string>(r => rl.question(p, r));
   while (true) {
