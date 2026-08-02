@@ -5,7 +5,7 @@ import { DESCRIPTION } from './prompt.js';
 const inputSchema = z.object({
   description: z.string().describe('Short (3-5 word) description'),
   prompt: z.string().describe('The task for the sub-agent to complete. Be specific.'),
-  subagent_type: z.enum(['general-purpose', 'explore']).optional().default('general-purpose'),
+  subagent_type: z.enum(['general-purpose', 'explore']).optional(),
   run_in_background: z.boolean().optional().describe('Run in background; you will be notified when complete.'),
 });
 
@@ -36,7 +36,7 @@ export const AgentTool = buildTool({
   isReadOnly: () => false,
   isConcurrencySafe: () => true,
 
-  async call({ description, prompt, run_in_background }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
+  async call({ description, prompt, subagent_type: _type, run_in_background }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
     if (!_tasks || !_runSubAgent || !_buildSubAgentContext || !_notify) {
       return { data: 'Agent system not initialized.' };
     }
