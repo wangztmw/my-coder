@@ -222,25 +222,24 @@ async function runAgent(userInput: string): Promise<string> {
       sessionMessages.push({ role: 'assistant', content: response.content });
 
       // Buffer 本轮的 tool_use，用于合并同工具
-      interface ToolCall { name: string; id: string; input: Record<string, unknown>; output: string; }
-      const calls: ToolCall[] = [];
+      // 提取所有tool_use, 并行执行(同轮调多个工具时不再串行等)
+      const toolUses = (response.content as Array<{ type: string; name?: string; id?: string; input?: Record<string, unknown> }>)
+        .filter(b => b.type === 'tool_use' && b.name && b.id);
 
-      for (const block of response.content) {
-        const b = block as { type: string; name?: string; id?: string; input?: Record<string, unknown> };
-        if (b.type === 'tool_use' && b.name && b.id) {
-          const tool = toolMap.get(b.name);
-          let toolOutput: string;
-          if (tool) {
-            try {
-              const result = await tool.call(b.input || {}, toolContext);
-              toolOutput = typeof result.data === 'string' ? result.data : JSON.stringify(result.data);
-            } catch (e) { toolOutput = `Error: ${(e as Error).message}`; }
-          } else {
-            toolOutput = `Unknown tool: ${b.name}`;
-          }
-          calls.push({ name: b.name, id: b.id, input: b.input || {}, output: toolOutput });
+      interface ToolCall { name: string; id: string; input: Record<string, unknown>; output: string; }
+      const calls = await Promise.all(toolUses.map(async b => {
+        const tool = toolMap.get(b.name!);
+        let toolOutput: string;
+        if (tool) {
+          try {
+            const result = await tool.call(b.input || {}, toolContext);
+            toolOutput = typeof result.data === 'string' ? result.data : JSON.stringify(result.data);
+          } catch (e) { toolOutput = `Error: ${(e as Error).message}`; }
+        } else {
+          toolOutput = `Unknown tool: ${b.name}`;
         }
-      }
+        return { name: b.name!, id: b.id!, input: b.input || {}, output: toolOutput };
+      }));
 
       // 合并同工具连续调用 + 输出
       const merged: Array<{ name: string; count: number; inputs: string[]; lines: number; sample: string }> = [];
