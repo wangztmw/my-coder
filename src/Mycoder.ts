@@ -26,7 +26,10 @@ async function main() {
   const taskRegistry = getTaskRegistry();
 
   // 持久化当前配置（下次启动不需要环境变量）
+  // 如果 API key 来自环境变量，写入配置文件（仅此一次）
+  const envApiKey = process.env.MYCODER_API_KEY || process.env.ANTHROPIC_API_KEY || '';
   saveConfig({
+    ...(envApiKey ? { apiKey: envApiKey } : {}),
     model: config.model,
     provider: config.provider,
     openaiBase: config.openaiBase,
