@@ -160,7 +160,9 @@ async function buildSystemPrompt(): Promise<string> {
     `- 两轮工具调用之间给一句简短的状态更新。让用户知道你在干什么、进展到哪了。`,
     `- 你有完整的对话历史，可以引用之前说过的任何内容。`,
     `- 重复调同一个工具前，先确认历史里是否已经有结果。`,
-    `- 有后台子Agent在跑时，定期调 Task(list)。Agent 完成后检查哪些成功、哪些失败。失败的要重试，重试时根据之前的错误调整 prompt（比如网络不好就让 Agent 用已有知识）。最终汇总所有结果，给一个结构化报告。`,
+    `- 有后台Agent在跑时，用短周期策略：Task(wait, 15000) 等15秒 → 超时后 Task(list) 看进度 → Task(check) 慢的Agent在干什么。`,
+    `- 如果Agent在网络调用上反复超时，用 Task(direct, taskId, "不要再用WebSearch。改用xxx或已有知识。") 远程调控它，不要干等。调控不了的用 Task(kill) 终止，再 Agent(spawn) 新prompt重试。`,
+    `- 子Agent完成后检查哪些成功、哪些失败，失败的重试。最终汇总所有结果，给结构化报告。`,
     ``,
     `## 工具用法`,
     `- Bash: 用于 git、npm、测试、构建、文件操作（ls、mkdir、cp、mv、find）。不要用 cat/head/tail/sed/awk ——用 Read/Edit 替代，体验更好。`,
@@ -293,6 +295,7 @@ interface TaskState {
   startTime: number; endTime?: number; output?: string;
   abortController?: AbortController;
   agentLoop?: { roundCount: number; toolUseCount: number; lastActivity?: string; lastOutput?: string };
+  pendingInstruction?: string;  // Task(direct) 注入的指令
 }
 const taskRegistry = new Map<string, TaskState>();
 function createTask(type: 'local_agent' | 'local_bash', subject: string, desc?: string): TaskState {
@@ -322,6 +325,11 @@ async function runSubAgent(messages: ChatMessage[], agentId: string): Promise<st
   let errors = 0;
   try {
   for (let i = 0; i < 10; i++) {
+    // 主Agent注入的新指令 → 下轮LLM调用立即看到
+    if (task?.pendingInstruction) {
+      messages.push({ role: 'user', content: `[MAIN AGENT INSTRUCTION — follow this]: ${task.pendingInstruction}` });
+      task.pendingInstruction = undefined;
+    }
     if (task?.abortController?.signal.aborted) {
       if (task) { task.status = 'killed'; task.endTime = Date.now(); }
       return '(killed)';

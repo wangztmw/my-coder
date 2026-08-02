@@ -2,8 +2,9 @@ import { z } from 'zod/v4';
 import { buildTool, type ToolUseContext, type ToolResult } from '../Tool.js';
 
 const inputSchema = z.object({
-  action: z.enum(['list', 'check', 'wait', 'kill', 'inbox']).describe('What to do'),
-  taskId: z.string().optional().describe('Task ID (for check/kill)'),
+  action: z.enum(['list', 'check', 'wait', 'kill', 'inbox', 'direct']).describe('What to do'),
+  taskId: z.string().optional().describe('Task ID (for check/kill/direct)'),
+  instruction: z.string().optional().describe('Instruction to inject into running agent (for direct)'),
   timeout_ms: z.number().optional().describe('Max wait ms (for wait, default 30000)'),
 });
 
@@ -43,11 +44,11 @@ export const TaskTool = buildTool({
   name: 'Task',
   inputSchema,
   async description() {
-    return 'Manage background tasks. Actions: list (show all), check (view task output), wait (wait for completion), kill (stop a task), inbox (view pending notifications).';
+    return 'Manage background tasks. Actions: list, check, wait, kill, inbox, direct. Use direct to inject new instructions into a RUNNING agent — it will see the instruction on its next turn. Use this to redirect stuck agents instead of killing them.';
   },
   isReadOnly: () => false,
 
-  async call({ action, taskId, timeout_ms }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
+  async call({ action, taskId, timeout_ms, instruction }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
     if (!_tasks || !_pendingNotifs) return { data: 'Task system not initialized.' };
     const tasks = [..._tasks.values()] as Array<{
       id: string; status: string; subject: string; type: string;
@@ -106,6 +107,16 @@ export const TaskTool = buildTool({
         t.status = 'killed';
         t.endTime = Date.now();
         return { data: `Task ${taskId} ("${t.subject}") killed.` };
+      }
+
+      case 'direct': {
+        if (!taskId) return { data: 'Error: taskId required' };
+        if (!instruction) return { data: 'Error: instruction required' };
+        const dt = _tasks.get(taskId);
+        if (!dt) return { data: `Task ${taskId} not found.` };
+        if (dt.status !== 'running') return { data: `Task ${taskId} is ${dt.status}, cannot inject instruction.` };
+        dt.pendingInstruction = instruction;
+        return { data: `Instruction sent to ${taskId} ("${dt.subject}"): ${instruction}` };
       }
 
       case 'inbox': {
