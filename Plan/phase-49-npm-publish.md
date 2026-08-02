@@ -1,7 +1,7 @@
 # Phase 49 计划：NPM 发布准备
 
 > **创建时间**：2026-08-02
-> **状态**：计划中
+> **状态**：✅ 已实施并验证完成（2026-08-02）
 > **目标**：让 my-coder 可以通过 `npm i -g my-coder && mycoder` 在任何电脑上使用
 > **原则**：先完善，再发布。不急——先把该做的事情想清楚、做干净。
 
@@ -27,8 +27,9 @@
 | # | 项目 | 现状 | 目标 |
 |---|------|------|------|
 | 9 | **tsconfig include 范围** | `["src/Mycoder.ts", "src/tools-v2/**/*.ts"]` | `["src/**/*.ts"]`（显式包含 agent/cli/config 等新文件） |
-| 10 | **zod 版本锁定** | `"^3.24.0"`（允许 minor 升级，v4 API hack 可能断） | `"~3.24.0"`（只允许补丁升级） |
-| 11 | **多余依赖清理** | `lodash-es`、`@anthropic-ai/sdk` 实际未使用 | 移除未使用的依赖（瘦身） |
+| 10 | **zod 版本** | `^3.24.0` → 代码用 `zod/v4` 子路径 | `"zod": "~4.4.0"`（v4 才有 /v4 导出） |
+| 11 | **多余依赖清理** | `lodash-es`、`@anthropic-ai/sdk`、`@modelcontextprotocol/sdk`、`p-map` 实际未使用 | 移除未使用的依赖 → 只剩 zod 一个 |
+| 12 | **package-lock.json** | 旧版含 5 个依赖的锁文件 | 重装后 -1,200 行 |
 
 ### 第三档：发布后验证（发布完成后执行）
 
@@ -246,13 +247,22 @@ Step 10: git commit + push
 
 ## 六、实施清单
 
-- [ ] Step 1: 写 README.md
-- [ ] Step 2: 创建 `bin/mycoder.js`
-- [ ] Step 3: 更新 tsconfig.json
-- [ ] Step 4: 重写 package.json
-- [ ] Step 5: `npm install` 更新 lockfile
-- [ ] Step 6: `rm -rf dist && npm run build`
-- [ ] Step 7: `npx tsc --noEmit` 验证
-- [ ] Step 8: 冒烟测试
-- [ ] Step 9: `npm pack --dry-run` 预览包内容
-- [ ] Step 10: git commit + push
+- [x] Step 1: 写 README.md（安装/配置/使用/架构，~80 行）
+- [x] Step 2: 创建 `bin/mycoder.js`（shebang + 动态 import）
+- [x] Step 3: 更新 tsconfig.json（include: `src/**/*.ts`）
+- [x] Step 4: 重写 package.json（版本/bin/files/engines/依赖瘦身）
+- [x] Step 5: `npm install` 更新 lockfile（zod ~4.4.0，删 4 个孤儿依赖，lockfile -1,200 行）
+- [x] Step 6: `rm -rf dist && npm run build`
+- [x] Step 7: `npx tsc --noEmit` 零错误 ✅
+- [x] Step 8: 冒烟测试（/help + /exit）✅
+- [x] Step 9: `npm pack --dry-run` 验证（23.2 kB 压缩 / 75.1 kB 解压 / 39 文件 / 零源码泄露）✅
+- [x] Step 10: git commit + push
+
+### 验证结果
+
+| 测试 | 结果 |
+|------|------|
+| TypeScript 编译 | ✅ 零错误 |
+| /help + /exit | ✅ 正常 |
+| npm pack --dry-run | ✅ 23.2 kB，39 文件，无 src/Plan/Backup |
+| 依赖数量 | ✅ 5 → 1（仅 zod） |
