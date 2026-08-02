@@ -328,7 +328,11 @@ async function main() {
       const start = Date.now();
       const result = await runAgent(input.trim());
       console.log(`\n${mdToANSI(result)}\n[${Date.now() - start}ms]\n`);
-    } catch (e) { console.error(`Error: ${(e as Error).message}\n`); }
+    } catch (e) {
+      const err = e as Error & { cause?: Error };
+      const detail = err.cause?.message || err.message;
+      console.error(`Error: ${detail}\n`);
+    }
   }
   rl.close();
   console.log('Bye.');

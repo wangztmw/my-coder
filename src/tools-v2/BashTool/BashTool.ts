@@ -52,10 +52,10 @@ export const BashTool = buildTool({
       const errOut = typeof err.stderr === 'string' ? err.stderr : err.stderr?.toString() || '';
 
       if (err.signal) {
-        return { data: `Killed by signal ${err.signal}\nStdout:\n${out}\nStderr:\n${errOut}` };
+        return { data: `Killed by signal ${err.signal}\nMessage: ${err.message || ''}\nStdout:\n${out}\nStderr:\n${errOut}` };
       }
       return {
-        data: `Exit code: ${err.status ?? 'unknown'}\nStdout:\n${out}\nStderr:\n${errOut}`,
+        data: `Exit: ${err.status ?? 'unknown'}${err.message ? ' — ' + err.message : ''}\nStdout:\n${out}\nStderr:\n${errOut}`,
       };
     }
   },
