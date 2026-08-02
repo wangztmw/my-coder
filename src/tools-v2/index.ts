@@ -10,6 +10,7 @@ import { WebFetchTool } from './WebFetchTool/WebFetchTool.js';
 import { MCPTool } from './MCPTool/MCPTool.js';
 import { SkillTool } from './SkillTool/SkillTool.js';
 import { AgentTool } from './AgentTool/AgentTool.js';
+import { TaskTool } from './TaskTool/TaskTool.js';
 
 export function getAllTools(): Tools {
   return [
@@ -24,5 +25,6 @@ export function getAllTools(): Tools {
     MCPTool,
     SkillTool,
     AgentTool,
+    TaskTool,
   ].filter(t => t.isEnabled());
 }
