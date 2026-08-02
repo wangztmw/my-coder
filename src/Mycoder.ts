@@ -20,6 +20,10 @@ import { createTask, completeTask, getTaskRegistry } from './task.js';
 // ---- 启动 ----
 
 async function main() {
+  // 支持 --api-key 参数
+  const i = process.argv.indexOf('--api-key');
+  if (i !== -1 && process.argv[i + 1]) process.env.MYCODER_API_KEY = process.argv[i + 1];
+
   const config = resolveConfig();  // env > ~/.mycoder.json
   const provider = config.provider === 'anthropic' ? anthropicProvider : openaiProvider;
   const tools = getAllTools();

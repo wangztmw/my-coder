@@ -1,6 +1,6 @@
 {
   "name": "@wangzt_mw/my-coder",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Minimal AI coding agent — stripped, independent, research-grade",
   "type": "module",
   "main": "dist/Mycoder.js",
