@@ -58,6 +58,10 @@ export const AgentTool = buildTool({
         if (t) { t.status = 'completed'; t.endTime = Date.now(); t.output = result; }
         const active = [..._tasks!.values()].filter((x: any) => x.status === 'running').length;
         _notify!(`[Agent "${description}" completed${active > 0 ? ` — ${active} running` : ''}]:\n${result.slice(0, 1000)}`);
+      }).catch(err => {
+        const t = _tasks!.get(id);
+        if (t) { t.status = 'failed'; t.endTime = Date.now(); t.output = `(crashed: ${(err as Error).message})`; }
+        _notify!(`[Agent "${description}" failed]: ${(err as Error).message}`);
       });
       return { data: `Agent spawned: ${id} ("${description}" running in background)` };
     }
