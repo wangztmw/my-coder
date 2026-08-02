@@ -324,9 +324,11 @@ async function runSubAgent(messages: ChatMessage[], taskId?: string): Promise<st
             : { type: 'tool_result', tool_use_id: b.id, content: out });
         }
       }
-      messages.push(PROVIDER === 'openai'
-        ? toolResults[toolResults.length - 1] as ChatMessage
-        : { role: 'user', content: toolResults } as ChatMessage);
+      if (PROVIDER === 'openai') {
+        for (const tr of toolResults) messages.push(tr as ChatMessage);
+      } else {
+        messages.push({ role: 'user', content: toolResults } as ChatMessage);
+      }
     }
   }
   return '(max iterations)';
