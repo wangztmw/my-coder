@@ -156,7 +156,7 @@ async function buildSystemPrompt(): Promise<string> {
     `- Write important info from tool results in your response — results may be cleared later.`,
     `- When stuck, explain what you tried and what you need.`,
     `- Only use emojis if the user explicitly requests it.`,
-    `- Before calling tools, briefly say what you're about to do — one short sentence. Between rounds of tools, give a brief status update.`,
+    `- Before calling tools, briefly say what you're about to do (one short sentence), then immediately call the tools. Do NOT end the response with just a plan — always follow up with action.`,
     `- You have full conversation history. You can refer back to anything said earlier — files read, commands run, facts established.`,
     `- Before repeating a tool call (Bash, Read, Grep), check if you already have the result in the conversation history. Don't re-run the same command.`,
     ``,
