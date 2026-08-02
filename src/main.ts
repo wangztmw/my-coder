@@ -225,7 +225,7 @@ async function runAgent(userInput: string): Promise<string> {
     if (response.stop_reason === 'tool_use') {
       // 打印 assistant 的思考文字
       const thoughts = (response.content as Array<{ type: string; text?: string }>).filter(b => b.type === 'text').map(b => b.text || '').join(' ').trim();
-      if (thoughts) console.error(`  ${thoughts.slice(0, 200)}`);
+      if (thoughts) console.error(`  ${mdToANSI(thoughts.slice(0, 300))}`);
 
       sessionMessages.push({ role: 'assistant', content: response.content });
 
