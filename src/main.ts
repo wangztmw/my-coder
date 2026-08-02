@@ -316,6 +316,8 @@ function buildSubAgentContext(taskPrompt: string): ChatMessage[] {
 async function runSubAgent(messages: ChatMessage[], agentId: string): Promise<string> {
   const task = taskRegistry.get(agentId);
   if (task) task.status = 'running';
+  let errors = 0;
+  try {
   for (let i = 0; i < 10; i++) {
     if (task?.abortController?.signal.aborted) {
       if (task) { task.status = 'killed'; task.endTime = Date.now(); }
@@ -349,9 +351,11 @@ async function runSubAgent(messages: ChatMessage[], agentId: string): Promise<st
             task.agentLoop.lastActivity = `${b.name}(${summary})`;
             task.agentLoop.lastOutput = out.slice(0, 200);
           }
-          // 子Agent进度打到stderr
-          const label = task?.subject || agentId;
-          console.error(`    [${label}] ${b.name}(${tool?.getToolUseSummary?.(b.input || {}) || b.name})`);
+          // 子Agent进度 — 只打关键节点，不逐条刷屏
+          if (task?.agentLoop && task.agentLoop.toolUseCount <= 3) {
+            const label = task?.subject || agentId;
+            console.error(`  [${label}] ${b.name}(${tool?.getToolUseSummary?.(b.input || {})?.slice(0, 60) || b.name})`);
+          }
           toolResults.push(PROVIDER === 'openai'
             ? { role: 'tool', tool_call_id: b.id, content: out }
             : { type: 'tool_result', tool_use_id: b.id, content: out });
@@ -365,6 +369,10 @@ async function runSubAgent(messages: ChatMessage[], agentId: string): Promise<st
     }
   }
   return '(max iterations)';
+  } catch (e) {
+    console.error(`  ✗ Sub-agent ${task?.subject || agentId} crashed: ${(e as Error).message}`);
+    return `(crashed: ${(e as Error).message})`;
+  }
 }
 
 // ============================================================
