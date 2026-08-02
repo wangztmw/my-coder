@@ -446,7 +446,7 @@ async function main() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const ask = (p: string) => new Promise<string>(r => rl.question(p, r));
   while (true) {
-    const input = await ask('> ');
+    const input = await ask('mycoder >>> ');
     if (!input.trim()) continue;
     if (input.trim() === '/exit' || input.trim() === '/quit') break;
     if (input.trim() === '/help') { console.log(`Tools: ${tools.map(t => t.name).join(', ')}\nCommands: /exit, /help`); continue; }
