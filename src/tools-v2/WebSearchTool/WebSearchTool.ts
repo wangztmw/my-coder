@@ -18,7 +18,7 @@ export const WebSearchTool = buildTool({
       const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
       const r = await fetch(url, {
         headers: { 'User-Agent': 'my-coder/0.3' },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(8000),
       });
       if (!r.ok) return { data: `Search failed: ${r.status}` };
       const html = await r.text();

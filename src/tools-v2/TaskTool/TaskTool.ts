@@ -4,7 +4,7 @@ import { buildTool, type ToolUseContext, type ToolResult } from '../Tool.js';
 const inputSchema = z.object({
   action: z.enum(['list', 'check', 'wait', 'kill', 'inbox']).describe('What to do'),
   taskId: z.string().optional().describe('Task ID (for check/kill)'),
-  timeout_ms: z.number().optional().describe('Max wait ms (for wait, default 60000)'),
+  timeout_ms: z.number().optional().describe('Max wait ms (for wait, default 30000)'),
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,7 +81,7 @@ export const TaskTool = buildTool({
       }
 
       case 'wait': {
-        const deadline = Date.now() + (timeout_ms || 60000);
+        const deadline = Date.now() + (timeout_ms || 30000);
         while (Date.now() < deadline) {
           const running = tasks.filter(t => t.status === 'running');
           if (running.length === 0) {
@@ -92,7 +92,7 @@ export const TaskTool = buildTool({
         }
         const still = tasks.filter(t => t.status === 'running');
         return {
-          data: `Timeout after ${timeout_ms || 60000}ms. ${still.length} still running:\n${still.map(fmtTask).join('\n')}\n\nUse Task(check, taskId) to investigate or Task(kill, taskId) to stop.`,
+          data: `Timeout after ${timeout_ms || 30000}ms. ${still.length} still running:\n${still.map(fmtTask).join('\n')}\n\nUse Task(check, taskId) to investigate or Task(kill, taskId) to stop.`,
         };
       }
 

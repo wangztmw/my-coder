@@ -17,7 +17,7 @@ export const WebFetchTool = buildTool({
     try {
       const r = await fetch(url.startsWith('http') ? url : `https://${url}`, {
         headers: { 'User-Agent': 'my-coder/0.2' },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(8000),
       });
       if (!r.ok) return { data: `Fetch failed: ${r.status} ${r.statusText}` };
       const html = await r.text();

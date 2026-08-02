@@ -310,7 +310,7 @@ function completeTask(id: string, output: string) {
 // ============================================================
 // 子Agent引擎
 // ============================================================
-const SUB_AGENT_PROMPT = 'You are a sub-agent. Complete the assigned task using the available tools. Return a concise report of what was done and any key findings. Do not ask questions — just complete the work and report.';
+const SUB_AGENT_PROMPT = 'You are a sub-agent. Complete the assigned task using the available tools. If web tools (WebSearch/WebFetch) fail 2+ times, stop using them and rely on your existing knowledge. Do not keep retrying failed network calls. Return a concise report — prioritize completing quickly over exhaustive searching. Do not ask questions.';
 
 function buildSubAgentContext(taskPrompt: string): ChatMessage[] {
   return [{ role: 'user', content: `Complete this task:\n${taskPrompt}\n\nReturn a concise report.` }];
