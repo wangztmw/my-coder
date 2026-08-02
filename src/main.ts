@@ -140,15 +140,19 @@ async function callLLM_OpenAI(
 const _callLLM = PROVIDER === 'anthropic' ? callLLM_Anthropic : callLLM_OpenAI;
 let _thinkStart = 0;
 let _isSubAgent = false;
-async function callLLM(prompt: string, messages: ChatMessage[]) {
+let _thinkLabel = '';
+async function callLLM(prompt: string, messages: ChatMessage[], label?: string) {
   _thinkStart = Date.now();
-  if (!_isSubAgent) process.stderr.write('  ● Thinking...');
+  if (!_isSubAgent) {
+    _thinkLabel = label || (messages.length <= 2 ? 'analyzing request' : 'processing');
+    process.stderr.write(`  ● Thinking (${_thinkLabel})`);
+  }
   const result = await _callLLM(prompt, messages);
   if (!_isSubAgent) {
     const elapsed = ((Date.now() - _thinkStart) / 1000).toFixed(1);
     const toolCount = (result.content as Array<{ type: string }>).filter(b => b.type === 'tool_use').length;
     const hint = toolCount > 0 ? ` → ${toolCount} tool${toolCount > 1 ? 's' : ''}` : '';
-    process.stderr.write(`\r  ● Thinking (${elapsed}s)${hint}\n`);
+    process.stderr.write(`\r  ● Thinking (${elapsed}s) — ${_thinkLabel}${hint}\n`);
   }
   return result;
 }
@@ -210,7 +214,10 @@ async function runAgent(userInput: string): Promise<string> {
   flushNotifications();  // 先把上轮的异步通知注入
   sessionMessages.push({ role: 'user', content: userInput });
   for (let i = 0; i < 25; i++) {
-    const response = await callLLM(SYSTEM_PROMPT, sessionMessages);
+    const lastMsg = sessionMessages[sessionMessages.length - 1]?.content;
+    const phase = i === 0 ? 'analyzing' :
+      typeof lastMsg === 'string' && lastMsg.length < 200 ? 'continuing' : 'reviewing results';
+    const response = await callLLM(SYSTEM_PROMPT, sessionMessages, phase);
     if (response.stop_reason === 'end_turn') {
       sessionMessages.push({ role: 'assistant', content: response.content });
       return (response.content as Array<{ type: string; text?: string }>).filter(b => b.type === 'text').map(b => b.text || '').join('\n');
