@@ -1,21 +1,19 @@
 {
   "name": "my-coder",
-  "version": "0.1.0",
-  "description": "Minimal Claude Code runtime — stripped, independent, research-grade",
-  "private": true,
+  "version": "0.4.0",
+  "description": "Minimal AI coding agent — stripped, independent, research-grade",
   "type": "module",
   "main": "dist/Mycoder.js",
+  "bin": { "mycoder": "bin/mycoder.js" },
+  "files": ["dist/", "bin/", "README.md"],
+  "engines": { "node": ">=18" },
   "scripts": {
     "build": "tsc",
     "start": "node dist/Mycoder.js",
     "dev": "npx tsx src/Mycoder.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.57.0",
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "lodash-es": "^4.18.1",
-    "p-map": "^7.0.6",
-    "zod": "^3.24.0"
+    "zod": "~4.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

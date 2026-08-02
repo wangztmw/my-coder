@@ -16,6 +16,6 @@
     "jsx": "react",
     "noImplicitAny": false
   },
-  "include": ["src/Mycoder.ts", "src/tools-v2/**/*.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules"]
 }
