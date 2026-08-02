@@ -191,8 +191,16 @@ function briefResult(data: string): string {
 
 // 跨轮对话——messages 在外面, 每轮追加
 const sessionMessages: ChatMessage[] = [];
+// 后台任务通知队列 — 不在中途注入, 下轮对话前flush
+const pendingNotifications: Array<{ role: string; content: string }> = [];
+function flushNotifications() {
+  while (pendingNotifications.length > 0) {
+    sessionMessages.push(pendingNotifications.shift()! as ChatMessage);
+  }
+}
 
 async function runAgent(userInput: string): Promise<string> {
+  flushNotifications();  // 先把上轮的异步通知注入
   sessionMessages.push({ role: 'user', content: userInput });
   for (let i = 0; i < 25; i++) {
     const response = await callLLM(SYSTEM_PROMPT, sessionMessages);
@@ -385,9 +393,10 @@ function mdToANSI(text: string): string {
 async function main() {
   SYSTEM_PROMPT = await buildSystemPrompt();
   const activeCount = () => [...taskRegistry.values()].filter(t => t.status === 'running').length;
-  initSubAgent({ runSubAgent, buildSubAgentContext, sessionMessages, createTask, completeTask, getActiveCount: activeCount });
-  initBashBg({ createTask: createTask as (t: string, d: string) => unknown, completeTask, sessionMessages });
-  initTaskTool({ taskRegistry, sessionMessages, runSubAgent, buildSubAgentContext });
+  const notify = (msg: string) => { pendingNotifications.push({ role: 'user', content: msg }); };
+  initSubAgent({ runSubAgent, buildSubAgentContext, notify, createTask, completeTask, getActiveCount: activeCount });
+  initBashBg({ createTask: createTask as (t: string, d: string) => unknown, completeTask, notify });
+  initTaskTool({ taskRegistry, notify, runSubAgent, buildSubAgentContext });
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const ask = (p: string) => new Promise<string>(r => rl.question(p, r));
   while (true) {

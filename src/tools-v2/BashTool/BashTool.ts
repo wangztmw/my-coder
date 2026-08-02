@@ -11,8 +11,8 @@ const inputSchema = z.object({
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _bgHooks: { createTask: (t: string, d: string) => any; completeTask: (id: string, o: string) => void; sessionMessages: any[] } | null = null;
-export function initBashBg(hooks: { createTask: (t: string, d: string) => any; completeTask: (id: string, o: string) => void; sessionMessages: any[] }) { _bgHooks = hooks; }
+let _bgHooks: { createTask: (t: string, d: string) => any; completeTask: (id: string, o: string) => void; notify: (msg: string) => void } | null = null;
+export function initBashBg(hooks: { createTask: (t: string, d: string) => any; completeTask: (id: string, o: string) => void; notify: (msg: string) => void }) { _bgHooks = hooks; }
 
 // 危险命令检测
 const DANGEROUS_PATTERNS = [
@@ -54,10 +54,7 @@ export const BashTool = buildTool({
       child.on('close', code => {
         const out = code === 0 ? stdout || '(no output)' : `Exit ${code}\n${stdout}\n${stderr}`;
         _bgHooks!.completeTask(task.id, out);
-        _bgHooks!.sessionMessages.push({
-          role: 'user',
-          content: `[Bash "${description || command.slice(0, 60)}" completed${code === 0 ? '' : ` (exit ${code})`}]:\n${out.slice(0, 1000)}`,
-        } as never);
+        _bgHooks!.notify(`[Bash "${description || command.slice(0, 60)}" completed${code === 0 ? '' : ` (exit ${code})`}]:\n${out.slice(0, 1000)}`);
       });
       return { data: `Background task spawned: ${task.id} ("${description || command.slice(0, 60)}")` };
     }

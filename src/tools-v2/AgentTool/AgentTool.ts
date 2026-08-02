@@ -14,7 +14,7 @@ let _runSubAgent: ((messages: any[], taskId?: string) => Promise<string>) | null
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _buildSubAgentContext: ((task: string) => any[]) | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _sessionMessages: any[] | null = null;
+let _notify: ((msg: string) => void) | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _createTask: ((type: any, desc: string) => any) | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,14 +24,14 @@ let _getActiveCount: (() => number) | null = null;
 export function initSubAgent(deps: {
   runSubAgent: NonNullable<typeof _runSubAgent>;
   buildSubAgentContext: NonNullable<typeof _buildSubAgentContext>;
-  sessionMessages: NonNullable<typeof _sessionMessages>;
+  notify: NonNullable<typeof _notify>;
   createTask: NonNullable<typeof _createTask>;
   completeTask: NonNullable<typeof _completeTask>;
   getActiveCount: NonNullable<typeof _getActiveCount>;
 }) {
   _runSubAgent = deps.runSubAgent;
   _buildSubAgentContext = deps.buildSubAgentContext;
-  _sessionMessages = deps.sessionMessages;
+  _notify = deps.notify;
   _createTask = deps.createTask;
   _completeTask = deps.completeTask;
   _getActiveCount = deps.getActiveCount;
@@ -45,7 +45,7 @@ export const AgentTool = buildTool({
   isConcurrencySafe: () => true,
 
   async call({ description, prompt, run_in_background }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
-    if (!_runSubAgent || !_buildSubAgentContext || !_sessionMessages) {
+    if (!_runSubAgent || !_buildSubAgentContext || !_notify) {
       return { data: 'Sub-agent system not initialized.' };
     }
 
@@ -57,7 +57,7 @@ export const AgentTool = buildTool({
         _completeTask!(task.id, result);
         const active = _getActiveCount?.() ?? 0;
         const note = `[Agent "${description}" completed${active > 0 ? ` — ${active} agent${active > 1 ? 's' : ''} still running` : ''}]:\n${result.slice(0, 1000)}`;
-        _sessionMessages!.push({ role: 'user', content: note });
+        _notify!(note);
         console.error(`  ✓ "${description}" done. ${active} agent${active !== 1 ? 's' : ''} running.`);
       });
       return { data: `Agent spawned: ${task.id} ("${description}" running in background)` };

@@ -15,7 +15,7 @@ const inputSchema = z.object({
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _taskRegistry: Map<string, any> | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _sessionMessages: any[] | null = null;
+let _notifyTask: ((msg: string) => void) | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _runSubAgent2: ((messages: any[], taskId?: string) => Promise<string>) | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,12 +23,12 @@ let _buildSubAgentContext2: ((task: string) => any[]) | null = null;
 
 export function initTaskTool(deps: {
   taskRegistry: NonNullable<typeof _taskRegistry>;
-  sessionMessages: NonNullable<typeof _sessionMessages>;
+  notify: (msg: string) => void;
   runSubAgent: (...args: any[]) => Promise<string>;
   buildSubAgentContext: (task: string) => any[];
 }) {
+  _notifyTask = deps.notify;
   _taskRegistry = deps.taskRegistry;
-  _sessionMessages = deps.sessionMessages;
   _runSubAgent2 = deps.runSubAgent;
   _buildSubAgentContext2 = deps.buildSubAgentContext;
 }
@@ -44,7 +44,7 @@ export const TaskTool = buildTool({
       case 'create': {
         if (!subject) return { data: 'Error: subject is required for create' };
         if (!prompt) return { data: 'Error: prompt is required for create' };
-        if (!_taskRegistry || !_runSubAgent2 || !_buildSubAgentContext2 || !_sessionMessages) {
+        if (!_taskRegistry || !_runSubAgent2 || !_buildSubAgentContext2 || !_notifyTask) {
           return { data: 'Task system not initialized.' };
         }
         const id = 'a' + Math.random().toString(36).slice(2, 10);
@@ -54,10 +54,7 @@ export const TaskTool = buildTool({
           const t = _taskRegistry!.get(id);
           if (t) { t.status = 'completed'; t.output = result; }
           const active = [..._taskRegistry!.values()].filter((t: { status: string }) => t.status === 'running').length;
-          _sessionMessages!.push({
-            role: 'user',
-            content: `[Task "${subject}" completed${active > 0 ? ` — ${active} task${active > 1 ? 's' : ''} still running` : ''}]:\n${result.slice(0, 1000)}`,
-          });
+          _notifyTask!(`[Task "${subject}" completed${active > 0 ? ` — ${active} task${active > 1 ? 's' : ''} still running` : ''}]:\n${result.slice(0, 1000)}`);
         });
         return { data: `Task created: ${id} ("${subject}")` };
       }
