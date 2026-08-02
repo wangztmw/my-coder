@@ -1,20 +1,55 @@
 /**
  * Agent 引擎 — 主 Agent 循环 + 子 Agent 引擎
- * 消除全局状态：sessionMessages、pendingNotifications 全部收敛为实例属性
+ *
+ * Phase 50: 引擎不再 import ANSI 模块，不再写 stdout/stderr。
+ * 所有进度和状态通过 onProgress 回调传给 CLI 层。
  */
 
 import type { Tool, Tools, ToolUseContext } from './tools-v2/Tool.js';
 import type { LLMProvider, ChatMessage } from './llm/types.js';
 import type { TaskState } from './task.js';
-import { mdToANSI, B, b } from './ansi.js';
 import { loadMemory } from './config.js';
 
-const SUB_AGENT_PROMPT = 'You are a sub-agent. Complete the assigned task using the available tools. If web tools (WebSearch/WebFetch) fail 2+ times, stop using them and rely on your existing knowledge. Do not keep retrying failed network calls. Return a concise report — prioritize completing quickly over exhaustive searching. Do not ask questions.';
+// ---- 进度事件类型 ----
 
-function briefResult(data: string): string {
+export interface ToolCall {
+  name: string;
+  id: string;
+  input: Record<string, unknown>;
+  output: string;
+}
+
+export interface MergedTool {
+  name: string;
+  count: number;
+  inputs: string[];
+  lines: number;
+  sample: string;
+}
+
+export type ProgressEvent =
+  | { type: 'thinking_start'; label: string }
+  | { type: 'thinking_end'; label: string; elapsedMs: number; toolCount: number }
+  | { type: 'tool_display'; calls: MergedTool[] }
+  | { type: 'thought'; text: string }
+  | { type: 'error'; message: string };
+
+/** Agent 执行结果 */
+export interface AgentResult {
+  text: string;      // 纯 Markdown，不含 ANSI
+  ms: number;
+}
+
+// ---- 工具函数 ----
+
+export function briefResult(data: string): string {
   const firstLine = data.split('\n')[0].slice(0, 80);
   return firstLine.length < data.length ? firstLine + '...' : firstLine;
 }
+
+const SUB_AGENT_PROMPT = 'You are a sub-agent. Complete the assigned task using the available tools. If web tools (WebSearch/WebFetch) fail 2+ times, stop using them and rely on your existing knowledge. Do not keep retrying failed network calls. Return a concise report — prioritize completing quickly over exhaustive searching. Do not ask questions.';
+
+// ---- 引擎类 ----
 
 export class AgentEngine {
   private provider: LLMProvider;
@@ -26,11 +61,9 @@ export class AgentEngine {
   private openaiBase: string;
   private systemPrompt: string;
 
-  // 实例级状态 — 不再用全局变量
   sessionMessages: ChatMessage[] = [];
   pendingNotifications: Array<{ role: string; content: string }> = [];
 
-  // 外部注入的依赖
   taskRegistry: Map<string, TaskState>;
   createTask: (type: 'local_agent' | 'local_bash', subject: string, desc?: string) => TaskState;
   completeTask: (id: string, output: string) => void;
@@ -98,12 +131,17 @@ export class AgentEngine {
     return sections.join('\n');
   }
 
-  // ---- LLM 调用（含思考状态显示） ----
+  // ---- LLM 调用（纯数据，不写终端） ----
 
-  private async callLLM(messages: ChatMessage[], label?: string): Promise<{ content: Array<unknown>; stop_reason: string }> {
+  private async callLLM(
+    messages: ChatMessage[],
+    label?: string,
+    onProgress?: (e: ProgressEvent) => void,
+  ): Promise<{ content: Array<unknown>; stop_reason: string }> {
     const thinkStart = Date.now();
     const thinkLabel = label || (messages.length <= 2 ? 'analyzing request' : 'processing');
-    process.stderr.write(`  ● ${B}Thinking${b} (${thinkLabel})`);
+
+    onProgress?.({ type: 'thinking_start', label: thinkLabel });
 
     const formattedTools = this.provider.formatTools(this.tools);
     const result = await this.provider.call(
@@ -111,10 +149,10 @@ export class AgentEngine {
       formattedTools, this.openaiBase,
     );
 
-    const elapsed = ((Date.now() - thinkStart) / 1000).toFixed(1);
+    const elapsedMs = Date.now() - thinkStart;
     const toolCount = (result.content as Array<{ type: string }>).filter(b => b.type === 'tool_use').length;
-    const hint = toolCount > 0 ? ` → ${toolCount} tool${toolCount > 1 ? 's' : ''}` : '';
-    process.stderr.write(`\r  ● ${B}Thinking${b} (${elapsed}s) — ${thinkLabel}${hint}\n`);
+
+    onProgress?.({ type: 'thinking_end', label: thinkLabel, elapsedMs, toolCount });
 
     return result;
   }
@@ -127,9 +165,36 @@ export class AgentEngine {
     }
   }
 
+  // ---- 工具调用合并（纯数据，不渲染） ----
+
+  private mergeToolCalls(calls: ToolCall[]): MergedTool[] {
+    const merged: MergedTool[] = [];
+    for (const c of calls) {
+      const last = merged[merged.length - 1];
+      let summary = this.toolMap.get(c.name)?.getToolUseSummary?.(c.input as never) || c.name;
+      if (summary.startsWith(c.name + ': ')) summary = summary.slice(c.name.length + 2);
+      else if (summary.startsWith(c.name + ' ')) summary = summary.slice(c.name.length + 1);
+      if (last && last.name === c.name) {
+        last.count++;
+        last.inputs.push(summary);
+        last.lines += c.output.split('\n').length;
+      } else {
+        merged.push({
+          name: c.name, count: 1, inputs: [summary],
+          lines: c.output.split('\n').length, sample: briefResult(c.output),
+        });
+      }
+    }
+    return merged;
+  }
+
   // ---- 主 Agent 循环 ----
 
-  async run(userInput: string): Promise<string> {
+  async run(
+    userInput: string,
+    onProgress?: (e: ProgressEvent) => void,
+  ): Promise<AgentResult> {
+    const startTime = Date.now();
     this.flushNotifications();
     this.sessionMessages.push({ role: 'user', content: userInput });
 
@@ -137,19 +202,20 @@ export class AgentEngine {
       const lastMsg = this.sessionMessages[this.sessionMessages.length - 1]?.content;
       const phase = i === 0 ? 'analyzing' :
         typeof lastMsg === 'string' && lastMsg.length < 200 ? 'continuing' : 'reviewing results';
-      const response = await this.callLLM(this.sessionMessages, phase);
+      const response = await this.callLLM(this.sessionMessages, phase, onProgress);
 
       if (response.stop_reason === 'end_turn') {
         this.sessionMessages.push({ role: 'assistant', content: response.content });
-        return (response.content as Array<{ type: string; text?: string }>)
+        const text = (response.content as Array<{ type: string; text?: string }>)
           .filter(b => b.type === 'text').map(b => b.text || '').join('\n');
+        return { text, ms: Date.now() - startTime };
       }
 
       if (response.stop_reason === 'tool_use') {
-        // 打印思考文字
+        // 思考文字 — 走事件
         const thoughts = (response.content as Array<{ type: string; text?: string }>)
           .filter(b => b.type === 'text').map(b => b.text || '').join(' ').trim();
-        if (thoughts) console.error(`  ${mdToANSI(thoughts.slice(0, 300))}`);
+        if (thoughts) onProgress?.({ type: 'thought', text: thoughts });
 
         this.sessionMessages.push({ role: 'assistant', content: response.content });
 
@@ -157,8 +223,7 @@ export class AgentEngine {
         const toolUses = (response.content as Array<{ type: string; name?: string; id?: string; input?: Record<string, unknown> }>)
           .filter(b => b.type === 'tool_use' && b.name && b.id);
 
-        interface ToolCall { name: string; id: string; input: Record<string, unknown>; output: string; }
-        const calls = await Promise.all(toolUses.map(async b => {
+        const calls: ToolCall[] = await Promise.all(toolUses.map(async b => {
           const tool = this.toolMap.get(b.name!);
           let toolOutput: string;
           if (tool) {
@@ -172,8 +237,8 @@ export class AgentEngine {
           return { name: b.name!, id: b.id!, input: b.input || {}, output: toolOutput };
         }));
 
-        // 合并显示
-        this.displayMergedTools(calls);
+        // 合并 → 发事件给 CLI
+        onProgress?.({ type: 'tool_display', calls: this.mergeToolCalls(calls) });
 
         // 组装 tool results
         const toolResults: Array<unknown> = [];
@@ -186,13 +251,13 @@ export class AgentEngine {
           this.sessionMessages.push({ role: 'user', content: toolResults });
         }
       } else {
-        return `Unexpected: ${response.stop_reason}`;
+        return { text: `Unexpected: ${response.stop_reason}`, ms: Date.now() - startTime };
       }
     }
-    return '(max iterations)';
+    return { text: '(max iterations)', ms: Date.now() - startTime };
   }
 
-  // ---- 子 Agent 引擎 ----
+  // ---- 子 Agent 引擎（静默——不传 onProgress） ----
 
   async runSubAgent(taskPrompt: string, agentId: string): Promise<string> {
     const task = this.taskRegistry.get(agentId);
@@ -213,6 +278,7 @@ export class AgentEngine {
           return '(killed)';
         }
 
+        // 子 Agent 不传 onProgress → callLLM 静默
         const response = await this.callLLM(messages);
 
         if (response.stop_reason === 'end_turn') {
@@ -262,36 +328,7 @@ export class AgentEngine {
       }
       return '(max iterations)';
     } catch (e) {
-      console.error(`  ✗ Sub-agent ${task?.subject || agentId} crashed: ${(e as Error).message}`);
       return `(crashed: ${(e as Error).message})`;
-    }
-  }
-
-  // ---- 工具输出显示 ----
-
-  private displayMergedTools(calls: Array<{ name: string; id: string; input: Record<string, unknown>; output: string }>) {
-    const merged: Array<{ name: string; count: number; inputs: string[]; lines: number; sample: string }> = [];
-    for (const c of calls) {
-      const last = merged[merged.length - 1];
-      let summary = this.toolMap.get(c.name)?.getToolUseSummary?.(c.input as never) || c.name;
-      if (summary.startsWith(c.name + ': ')) summary = summary.slice(c.name.length + 2);
-      else if (summary.startsWith(c.name + ' ')) summary = summary.slice(c.name.length + 1);
-      if (last && last.name === c.name) {
-        last.count++;
-        last.inputs.push(summary);
-        last.lines += c.output.split('\n').length;
-      } else {
-        merged.push({
-          name: c.name, count: 1, inputs: [summary],
-          lines: c.output.split('\n').length, sample: briefResult(c.output),
-        });
-      }
-    }
-    for (const m of merged) {
-      const label = m.count > 1 ? `${m.name} ×${m.count}` : m.name;
-      const params = m.inputs.join(', ');
-      const info = m.count > 1 ? `(${m.lines} lines total)` : `→ ${m.sample}`;
-      console.error(`  ● ${B}${label}${b}: ${params}  ${info}`);
     }
   }
 }
