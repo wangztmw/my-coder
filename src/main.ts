@@ -8,6 +8,7 @@
 import { createInterface } from 'node:readline';
 import { getAllTools } from './tools-v2/index.js';
 import { initSubAgent } from './tools-v2/AgentTool/AgentTool.js';
+import { initBashBg } from './tools-v2/BashTool/BashTool.js';
 import { z } from 'zod/v4';
 
 // ============================================================
@@ -382,9 +383,9 @@ function mdToANSI(text: string): string {
 // ============================================================
 async function main() {
   SYSTEM_PROMPT = await buildSystemPrompt();
-  initSubAgent({ runSubAgent, buildSubAgentContext, sessionMessages, createTask, completeTask,
-    getActiveCount: () => [...taskRegistry.values()].filter(t => t.status === 'running').length,
-  });
+  const activeCount = () => [...taskRegistry.values()].filter(t => t.status === 'running').length;
+  initSubAgent({ runSubAgent, buildSubAgentContext, sessionMessages, createTask, completeTask, getActiveCount: activeCount });
+  initBashBg({ createTask: createTask as (t: string, d: string) => unknown, completeTask, sessionMessages });
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const ask = (p: string) => new Promise<string>(r => rl.question(p, r));
   while (true) {

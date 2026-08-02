@@ -1,5 +1,5 @@
 import { z } from 'zod/v4';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { buildTool, type ToolUseContext, type ToolResult } from '../Tool.js';
 import { DESCRIPTION } from './prompt.js';
 
@@ -7,7 +7,12 @@ const inputSchema = z.object({
   command: z.string().describe('Shell command to execute'),
   description: z.string().optional().describe('Brief description of what this does'),
   timeout: z.number().optional().describe('Timeout in ms (default 120000, max 600000)'),
+  run_in_background: z.boolean().optional().describe('Run in background; you will be notified when complete'),
 });
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _bgHooks: { createTask: (t: string, d: string) => any; completeTask: (id: string, o: string) => void; sessionMessages: any[] } | null = null;
+export function initBashBg(hooks: { createTask: (t: string, d: string) => any; completeTask: (id: string, o: string) => void; sessionMessages: any[] }) { _bgHooks = hooks; }
 
 // 危险命令检测
 const DANGEROUS_PATTERNS = [
@@ -26,12 +31,35 @@ export const BashTool = buildTool({
   async description() { return DESCRIPTION; },
   isReadOnly: () => false,
 
-  async call({ command, timeout }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
+  async call({ command, description, timeout, run_in_background }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
     // 危险命令检查
     for (const { pattern, msg } of DANGEROUS_PATTERNS) {
       if (pattern.test(command)) {
         return { data: `BLOCKED: Dangerous command detected — ${msg}.\nCommand: ${command}` };
       }
+    }
+
+    // 后台执行
+    if (run_in_background && _bgHooks) {
+      const task = _bgHooks.createTask('local_bash', description || command.slice(0, 80));
+      const child = spawn('sh', ['-c', command], {
+        cwd: process.cwd(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+      child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+      child.on('close', code => {
+        const out = code === 0 ? stdout || '(no output)' : `Exit ${code}\n${stdout}\n${stderr}`;
+        _bgHooks!.completeTask(task.id, out);
+        _bgHooks!.sessionMessages.push({
+          role: 'user',
+          content: `[Bash "${description || command.slice(0, 60)}" completed${code === 0 ? '' : ` (exit ${code})`}]:\n${out.slice(0, 1000)}`,
+        } as never);
+      });
+      return { data: `Background task spawned: ${task.id} ("${description || command.slice(0, 60)}")` };
     }
 
     try {
