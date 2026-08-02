@@ -455,9 +455,31 @@ async function main() {
   initBashBg({ createTask: createTask as (t: string, d: string) => unknown, completeTask, notify });
   initTaskTool({ taskRegistry, notify, pendingNotifications });
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (p: string) => new Promise<string>(r => rl.question(p, r));
+  // Phase 45 修复: stdin EOF(非交互驱动)时优雅退出, 避免 ERR_USE_AFTER_CLOSE 崩溃
+  let inputClosed = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let pendingResolve: ((v: string | undefined) => void) | null = null;
+  rl.on('close', () => {
+    inputClosed = true;
+    // 关键: 主动解除"close 发生时正处于挂起"的那次 question, 否则 while 会卡死
+    if (pendingResolve) { pendingResolve(undefined); pendingResolve = null; }
+  });
+  const ask = (p: string) => new Promise<string | undefined>(r => {
+    if (inputClosed) { r(undefined); return; }  // 已关闭 → 直接返回哨兵值
+    pendingResolve = r;
+    rl.question(p, ans => {
+      pendingResolve = null;
+      if (inputClosed) { r(undefined); return; }  // 竞态保护: close 后回调也判一次
+      r(ans);
+    });
+  });
   while (true) {
     const input = await ask(`${C}${B}mycoder${b}${c} ${B}>>>${b} `);
+    if (input === undefined) {  // EOF(输入流结束) → 优雅收尾
+      console.log('Bye.');
+      rl.close();
+      process.exit(0);
+    }
     if (!input.trim()) continue;
     if (input.trim() === '/exit' || input.trim() === '/quit') break;
     if (input.trim() === '/help') { console.log(`Tools: ${tools.map(t => t.name).join(', ')}\nCommands: /exit, /help`); continue; }
