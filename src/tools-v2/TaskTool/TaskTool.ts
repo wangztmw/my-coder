@@ -1,100 +1,118 @@
 import { z } from 'zod/v4';
 import { buildTool, type ToolUseContext, type ToolResult } from '../Tool.js';
-import { DESCRIPTION } from './prompt.js';
 
 const inputSchema = z.object({
-  action: z.enum(['create', 'list', 'check', 'wait']).describe('What to do'),
-  subject: z.string().optional().describe('Task title (for create)'),
-  description: z.string().optional().describe('Task description (for create)'),
-  prompt: z.string().optional().describe('Agent prompt (for create with agent type)'),
-  taskId: z.string().optional().describe('Task ID (for check)'),
-  timeout_ms: z.number().optional().describe('Max wait time in ms (for wait, default 60000)'),
+  action: z.enum(['list', 'check', 'wait', 'kill', 'inbox']).describe('What to do'),
+  taskId: z.string().optional().describe('Task ID (for check/kill)'),
+  timeout_ms: z.number().optional().describe('Max wait ms (for wait, default 60000)'),
 });
 
-// Task registry — shared with main.ts via init
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _taskRegistry: Map<string, any> | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _notifyTask: ((msg: string) => void) | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _runSubAgent2: ((messages: any[], taskId?: string) => Promise<string>) | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _buildSubAgentContext2: ((task: string) => any[]) | null = null;
+let _tasks: Map<string, any> | null = null;
+let _notify: ((msg: string) => void) | null = null;
+let _pendingNotifs: Array<{ role: string; content: string }> | null = null;
 
 export function initTaskTool(deps: {
-  taskRegistry: NonNullable<typeof _taskRegistry>;
+  taskRegistry: Map<string, any>;
   notify: (msg: string) => void;
-  runSubAgent: (...args: any[]) => Promise<string>;
-  buildSubAgentContext: (task: string) => any[];
+  pendingNotifications: Array<{ role: string; content: string }>;
 }) {
-  _notifyTask = deps.notify;
-  _taskRegistry = deps.taskRegistry;
-  _runSubAgent2 = deps.runSubAgent;
-  _buildSubAgentContext2 = deps.buildSubAgentContext;
+  _tasks = deps.taskRegistry;
+  _notify = deps.notify;
+  _pendingNotifs = deps.pendingNotifications;
+}
+
+function fmtTask(t: { id: string; status: string; subject: string; type: string;
+  startTime: number; agentLoop?: { roundCount: number; toolUseCount: number; lastActivity?: string; lastOutput?: string };
+  output?: string; endTime?: number;
+}): string {
+  const elapsed = Math.round(((t.endTime || Date.now()) - t.startTime) / 1000);
+  const icon = t.status === 'running' ? '⏳' : t.status === 'completed' ? '✓' : t.status === 'killed' ? '✗' : '?';
+  let line = `${icon} [${t.status}] ${t.id}: ${t.subject} (${elapsed}s)`;
+  if (t.agentLoop && t.status === 'running') {
+    line += ` — round ${t.agentLoop.roundCount}, ${t.agentLoop.toolUseCount} tools`;
+    if (t.agentLoop.lastActivity) line += `, last: ${t.agentLoop.lastActivity}`;
+  }
+  if (t.output && t.status !== 'running') {
+    line += ` → ${t.output.slice(0, 80)}`;
+  }
+  return line;
 }
 
 export const TaskTool = buildTool({
   name: 'Task',
   inputSchema,
-  async description() { return DESCRIPTION; },
+  async description() {
+    return 'Manage background tasks. Actions: list (show all), check (view task output), wait (wait for completion), kill (stop a task), inbox (view pending notifications).';
+  },
   isReadOnly: () => false,
 
-  async call({ action, subject, description: _desc, prompt, taskId, timeout_ms }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
-    switch (action) {
-      case 'create': {
-        if (!subject) return { data: 'Error: subject is required for create' };
-        if (!prompt) return { data: 'Error: prompt is required for create' };
-        if (!_taskRegistry || !_runSubAgent2 || !_buildSubAgentContext2 || !_notifyTask) {
-          return { data: 'Task system not initialized.' };
-        }
-        const id = 'a' + Math.random().toString(36).slice(2, 10);
-        _taskRegistry.set(id, { id, type: 'local_agent', status: 'running', description: subject, startTime: Date.now() });
-        const msgs = _buildSubAgentContext2(prompt);
-        _runSubAgent2(msgs, id).then(result => {
-          const t = _taskRegistry!.get(id);
-          if (t) { t.status = 'completed'; t.output = result; }
-          const active = [..._taskRegistry!.values()].filter((t: { status: string }) => t.status === 'running').length;
-          _notifyTask!(`[Task "${subject}" completed${active > 0 ? ` — ${active} task${active > 1 ? 's' : ''} still running` : ''}]:\n${result.slice(0, 1000)}`);
-        });
-        return { data: `Task created: ${id} ("${subject}")` };
-      }
+  async call({ action, taskId, timeout_ms }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
+    if (!_tasks || !_pendingNotifs) return { data: 'Task system not initialized.' };
+    const tasks = [..._tasks.values()] as Array<{
+      id: string; status: string; subject: string; type: string;
+      startTime: number; endTime?: number; output?: string; abortController?: AbortController;
+      agentLoop?: { roundCount: number; toolUseCount: number; lastActivity?: string; lastOutput?: string };
+    }>;
 
+    switch (action) {
       case 'list': {
-        if (!_taskRegistry) return { data: 'Task system not initialized.' };
-        const tasks = [..._taskRegistry.values()];
         if (tasks.length === 0) return { data: '(no tasks)' };
-        const lines = tasks.map((t: { id: string; type: string; status: string; description: string; startTime: number }) =>
-          `${t.status === 'running' ? '⏳' : '✓'} [${t.status}] ${t.id}: ${t.description}${t.type === 'local_agent' ? ' (agent)' : ' (bash)'}`);
-        return { data: `${tasks.length} task(s):\n${lines.join('\n')}` };
+        const running = tasks.filter(t => t.status === 'running');
+        const done = tasks.filter(t => t.status !== 'running');
+        const lines = [...running, ...done].map(fmtTask);
+        return { data: `${tasks.length} tasks (${running.length} running, ${done.length} done):\n${lines.join('\n')}` };
       }
 
       case 'check': {
-        if (!taskId) return { data: 'Error: taskId is required for check' };
-        if (!_taskRegistry) return { data: 'Task system not initialized.' };
-        const task = _taskRegistry.get(taskId);
-        if (!task) return { data: `Task not found: ${taskId}` };
-        if (task.status === 'running') {
-          return { data: `[${task.status}] ${task.id}: ${task.description}\n(no output yet — task is still running)` };
+        if (!taskId) return { data: 'Error: taskId required' };
+        const t = _tasks.get(taskId);
+        if (!t) return { data: `Task ${taskId} not found.` };
+        let result = `${fmtTask(t)}\n`;
+        if (t.agentLoop && t.status === 'running') {
+          result += `\nLive progress:\n  Round: ${t.agentLoop.roundCount}/10\n  Tools called: ${t.agentLoop.toolUseCount}\n`;
+          if (t.agentLoop.lastActivity) result += `  Last activity: ${t.agentLoop.lastActivity}\n`;
+          if (t.agentLoop.lastOutput) result += `  Last output: ${t.agentLoop.lastOutput.slice(0, 300)}\n`;
         }
-        return { data: `[${task.status}] ${task.id}: ${task.description}\n\n${task.output || '(no output)'}` };
+        if (t.output) {
+          result += `\nOutput:\n${t.output.slice(0, 2000)}`;
+        }
+        return { data: result };
       }
 
       case 'wait': {
-        if (!_taskRegistry) return { data: 'Task system not initialized.' };
         const deadline = Date.now() + (timeout_ms || 60000);
         while (Date.now() < deadline) {
-          const running = [..._taskRegistry.values()].filter((t: { status: string }) => t.status === 'running');
+          const running = tasks.filter(t => t.status === 'running');
           if (running.length === 0) {
-            const all = [..._taskRegistry.values()];
-            return { data: `All ${all.length} task(s) completed.` };
+            const all = tasks;
+            return { data: `All ${all.length} tasks completed.` };
           }
           await new Promise(r => setTimeout(r, 1000));
         }
-        const stillRunning = [..._taskRegistry.values()].filter((t: { status: string }) => t.status === 'running');
+        const still = tasks.filter(t => t.status === 'running');
         return {
-          data: `Timeout after ${timeout_ms || 60000}ms. ${stillRunning.length} task(s) still running:\n` +
-            stillRunning.map((t: { id: string; description: string }) => `  ${t.id}: ${t.description}`).join('\n') +
-            `\nUse Task(check, taskId: "...") to investigate.`,
+          data: `Timeout after ${timeout_ms || 60000}ms. ${still.length} still running:\n${still.map(fmtTask).join('\n')}\n\nUse Task(check, taskId) to investigate or Task(kill, taskId) to stop.`,
+        };
+      }
+
+      case 'kill': {
+        if (!taskId) return { data: 'Error: taskId required' };
+        const t = _tasks.get(taskId);
+        if (!t) return { data: `Task ${taskId} not found.` };
+        if (t.abortController) {
+          try { t.abortController.abort(); } catch {}
+        }
+        t.status = 'killed';
+        t.endTime = Date.now();
+        return { data: `Task ${taskId} ("${t.subject}") killed.` };
+      }
+
+      case 'inbox': {
+        const pending = _pendingNotifs;
+        if (pending.length === 0) return { data: '(inbox empty)' };
+        return {
+          data: `${pending.length} pending notification(s):\n${pending.map((n, i) => `${i + 1}. ${n.content.slice(0, 200)}`).join('\n\n')}\n\n(Notifications will be delivered at the start of the next user turn.)`,
         };
       }
 
@@ -103,7 +121,9 @@ export const TaskTool = buildTool({
     }
   },
 
-  async prompt() { return `## Task\n${DESCRIPTION}`; },
+  async prompt() { return '## Task\nManage background tasks: list, check, wait, kill, inbox.'; },
   userFacingName: () => 'Task',
-  getToolUseSummary({ action, subject }: Partial<z.infer<typeof inputSchema>>) { return `Task: ${action}${subject ? ` "${subject}"` : ''}`; },
+  getToolUseSummary({ action, taskId }: Partial<z.infer<typeof inputSchema>>) {
+    return `Task: ${action}${taskId ? ` ${taskId}` : ''}`;
+  },
 });

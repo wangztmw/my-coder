@@ -7,7 +7,7 @@
 
 import { createInterface } from 'node:readline';
 import { getAllTools } from './tools-v2/index.js';
-import { initSubAgent } from './tools-v2/AgentTool/AgentTool.js';
+import { initAgentTool } from './tools-v2/AgentTool/AgentTool.js';
 import { initBashBg } from './tools-v2/BashTool/BashTool.js';
 import { initTaskTool } from './tools-v2/TaskTool/TaskTool.js';
 import { z } from 'zod/v4';
@@ -280,16 +280,21 @@ async function runAgent(userInput: string): Promise<string> {
 }
 
 // ============================================================
-// Task 系统 — 最小异步任务管理
+// Task 系统 — 增强版异步任务管理
 // ============================================================
-type TaskType = 'local_bash' | 'local_agent';
-type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
-interface TaskState { id: string; type: TaskType; status: TaskStatus; description: string; startTime: number; endTime?: number; output?: string; }
+interface TaskState {
+  id: string; type: 'local_agent' | 'local_bash';
+  status: 'running' | 'completed' | 'failed' | 'killed';
+  subject: string; description?: string;
+  startTime: number; endTime?: number; output?: string;
+  abortController?: AbortController;
+  agentLoop?: { roundCount: number; toolUseCount: number; lastActivity?: string; lastOutput?: string };
+}
 const taskRegistry = new Map<string, TaskState>();
-
-function createTask(type: TaskType, description: string): TaskState {
+function createTask(type: 'local_agent' | 'local_bash', subject: string, desc?: string): TaskState {
   const id = type[0] + Math.random().toString(36).slice(2, 10);
-  const task: TaskState = { id, type, status: 'running', description, startTime: Date.now() };
+  const task: TaskState = { id, type, status: 'running', subject, description: desc, startTime: Date.now() };
+  if (type === 'local_agent') task.agentLoop = { roundCount: 0, toolUseCount: 0 };
   taskRegistry.set(id, task);
   return task;
 }
@@ -307,17 +312,26 @@ function buildSubAgentContext(taskPrompt: string): ChatMessage[] {
   return [{ role: 'user', content: `Complete this task:\n${taskPrompt}\n\nReturn a concise report.` }];
 }
 
-async function runSubAgent(messages: ChatMessage[], taskId?: string): Promise<string> {
-  if (taskId) { const t = taskRegistry.get(taskId); if (t) t.status = 'running'; }
+async function runSubAgent(messages: ChatMessage[], agentId: string): Promise<string> {
+  const task = taskRegistry.get(agentId);
+  if (task) task.status = 'running';
   for (let i = 0; i < 10; i++) {
+    if (task?.abortController?.signal.aborted) {
+      if (task) { task.status = 'killed'; task.endTime = Date.now(); }
+      return '(killed)';
+    }
     const response = await callLLM(SUB_AGENT_PROMPT, messages);
     if (response.stop_reason === 'end_turn') {
       const text = (response.content as Array<{ type: string; text?: string }>)
         .filter(b => b.type === 'text').map(b => b.text || '').join('\n');
-      if (taskId) completeTask(taskId, text);
+      completeTask(agentId, text);
       return text || '(done)';
     }
     if (response.stop_reason === 'tool_use') {
+      if (task?.agentLoop) {
+        task.agentLoop.roundCount = i + 1;
+        task.agentLoop.toolUseCount += (response.content as Array<{ type: string }>).filter(b => b.type === 'tool_use').length;
+      }
       messages.push({ role: 'assistant', content: response.content });
       const toolResults: Array<unknown> = [];
       for (const block of response.content) {
@@ -329,6 +343,11 @@ async function runSubAgent(messages: ChatMessage[], taskId?: string): Promise<st
             try { const r = await tool.call(b.input || {}, toolContext); out = typeof r.data === 'string' ? r.data : JSON.stringify(r.data); }
             catch (e) { out = `Error: ${(e as Error).message}`; }
           } else { out = `Unknown: ${b.name}`; }
+          if (task?.agentLoop) {
+            const summary = tool?.getToolUseSummary?.(b.input || {}) || b.name;
+            task.agentLoop.lastActivity = `${b.name}(${summary})`;
+            task.agentLoop.lastOutput = out.slice(0, 200);
+          }
           toolResults.push(PROVIDER === 'openai'
             ? { role: 'tool', tool_call_id: b.id, content: out }
             : { type: 'tool_result', tool_use_id: b.id, content: out });
@@ -392,11 +411,10 @@ function mdToANSI(text: string): string {
 // ============================================================
 async function main() {
   SYSTEM_PROMPT = await buildSystemPrompt();
-  const activeCount = () => [...taskRegistry.values()].filter(t => t.status === 'running').length;
   const notify = (msg: string) => { pendingNotifications.push({ role: 'user', content: msg }); };
-  initSubAgent({ runSubAgent, buildSubAgentContext, notify, createTask, completeTask, getActiveCount: activeCount });
+  initAgentTool({ taskRegistry, runSubAgent, buildSubAgentContext, notify });
   initBashBg({ createTask: createTask as (t: string, d: string) => unknown, completeTask, notify });
-  initTaskTool({ taskRegistry, notify, runSubAgent, buildSubAgentContext });
+  initTaskTool({ taskRegistry, notify, pendingNotifications });
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const ask = (p: string) => new Promise<string>(r => rl.question(p, r));
   while (true) {

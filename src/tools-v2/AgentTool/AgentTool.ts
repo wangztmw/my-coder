@@ -3,38 +3,30 @@ import { buildTool, type ToolUseContext, type ToolResult } from '../Tool.js';
 import { DESCRIPTION } from './prompt.js';
 
 const inputSchema = z.object({
-  description: z.string().describe('Short (3-5 word) description of the task'),
+  description: z.string().describe('Short (3-5 word) description'),
   prompt: z.string().describe('The task for the sub-agent to complete. Be specific.'),
   subagent_type: z.enum(['general-purpose', 'explore']).optional().default('general-purpose'),
   run_in_background: z.boolean().optional().describe('Run in background; you will be notified when complete.'),
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _runSubAgent: ((messages: any[], taskId?: string) => Promise<string>) | null = null;
+let _tasks: Map<string, any> | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _runSubAgent: ((messages: any[], agentId: string) => Promise<string>) | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _buildSubAgentContext: ((task: string) => any[]) | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _notify: ((msg: string) => void) | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _createTask: ((type: any, desc: string) => any) | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _completeTask: ((id: string, out: string) => void) | null = null;
-let _getActiveCount: (() => number) | null = null;
 
-export function initSubAgent(deps: {
-  runSubAgent: NonNullable<typeof _runSubAgent>;
-  buildSubAgentContext: NonNullable<typeof _buildSubAgentContext>;
-  notify: NonNullable<typeof _notify>;
-  createTask: NonNullable<typeof _createTask>;
-  completeTask: NonNullable<typeof _completeTask>;
-  getActiveCount: NonNullable<typeof _getActiveCount>;
+export function initAgentTool(deps: {
+  taskRegistry: Map<string, any>;
+  runSubAgent: (...args: any[]) => Promise<string>;
+  buildSubAgentContext: (task: string) => any[];
+  notify: (msg: string) => void;
 }) {
+  _tasks = deps.taskRegistry;
   _runSubAgent = deps.runSubAgent;
   _buildSubAgentContext = deps.buildSubAgentContext;
   _notify = deps.notify;
-  _createTask = deps.createTask;
-  _completeTask = deps.completeTask;
-  _getActiveCount = deps.getActiveCount;
 }
 
 export const AgentTool = buildTool({
@@ -45,25 +37,35 @@ export const AgentTool = buildTool({
   isConcurrencySafe: () => true,
 
   async call({ description, prompt, run_in_background }: z.infer<typeof inputSchema>, _ctx: ToolUseContext): Promise<ToolResult<string>> {
-    if (!_runSubAgent || !_buildSubAgentContext || !_notify) {
-      return { data: 'Sub-agent system not initialized.' };
+    if (!_tasks || !_runSubAgent || !_buildSubAgentContext || !_notify) {
+      return { data: 'Agent system not initialized.' };
     }
 
-    const messages = _buildSubAgentContext(prompt);
+    const id = 'a' + Math.random().toString(36).slice(2, 10);
+    const msgs = _buildSubAgentContext(prompt);
 
-    if (run_in_background && _createTask && _completeTask) {
-      const task = _createTask('local_agent', description);
-      _runSubAgent(messages, task.id).then(result => {
-        _completeTask!(task.id, result);
-        const active = _getActiveCount?.() ?? 0;
-        const note = `[Agent "${description}" completed${active > 0 ? ` — ${active} agent${active > 1 ? 's' : ''} still running` : ''}]:\n${result.slice(0, 1000)}`;
-        _notify!(note);
-        console.error(`  ✓ "${description}" done. ${active} agent${active !== 1 ? 's' : ''} running.`);
+    // 在共享 taskRegistry 里创建 TaskState
+    _tasks.set(id, {
+      id, type: 'local_agent', status: 'running', subject: description,
+      startTime: Date.now(),
+      agentLoop: { roundCount: 0, toolUseCount: 0 },
+      abortController: new AbortController(),
+    });
+
+    if (run_in_background) {
+      _runSubAgent(msgs, id).then(result => {
+        const t = _tasks!.get(id);
+        if (t) { t.status = 'completed'; t.endTime = Date.now(); t.output = result; }
+        const active = [..._tasks!.values()].filter((x: any) => x.status === 'running').length;
+        _notify!(`[Agent "${description}" completed${active > 0 ? ` — ${active} running` : ''}]:\n${result.slice(0, 1000)}`);
       });
-      return { data: `Agent spawned: ${task.id} ("${description}" running in background)` };
+      return { data: `Agent spawned: ${id} ("${description}" running in background)` };
     }
 
-    const result = await _runSubAgent(messages);
+    // 同步模式
+    const result = await _runSubAgent(msgs, id);
+    const t = _tasks.get(id);
+    if (t) { t.status = 'completed'; t.endTime = Date.now(); t.output = result; }
     return { data: `[Agent "${description}" report]:\n${result}` };
   },
 
