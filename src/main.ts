@@ -429,8 +429,17 @@ function mdToANSI(text: string): string {
   result = result.replace(/^---$/gm, `${G}${'─'.repeat(60)}${c}`);
   // 引用
   result = result.replace(/^> (.+)$/gm, `${G}│ $1${c}`);
-  // 安全：删除未配对的ANSI码
-  result = result.replace(/\x1b\[/g, m => (result.indexOf(m) < result.lastIndexOf(m) ? m : ''));
+  // 安全：确保ANSI码平衡(未闭合的粗体/灰色 → 关闭)
+  let bOpen = 0, dOpen = 0;
+  const re = /\x1b\[(1|22|2)m/g; let m;
+  while ((m = re.exec(result)) !== null) {
+    if (m[1] === '1') bOpen++; else if (m[1] === '22') bOpen = Math.max(0, bOpen - 1);
+    else if (m[1] === '2') dOpen++; else if (m[1] === '22') dOpen = Math.max(0, dOpen - 1);
+  }
+  if (bOpen > 0) result += b.repeat(bOpen);
+  if (dOpen > 0) result += d.repeat(dOpen);
+  // 去掉残留的未配对*号
+  result = result.replace(/^\*{1,2}(?!\*)/gm, '').replace(/(?<!\*)\*{1,2}$/gm, '');
   return result;
 }
 
