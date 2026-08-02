@@ -66,7 +66,7 @@ async function main() {
   // 启动横幅
   console.log(`my-coder v0.4.0`);
   console.log(`Provider: ${config.provider}  |  Model: ${config.model}  |  Tools: ${tools.length}`);
-  console.log(`Config: ~/.mycoder.json  |  Memory: ~/.mycoder/MYCODER.md`);
+  console.log(`Config: ~/.mycoder/config.json  |  Memory: ~/.mycoder/MYCODER.md`);
   console.log('Type /help for commands, /exit to quit\n');
 
   // 进入 REPL

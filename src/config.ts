@@ -1,5 +1,7 @@
 /**
- * Config 持久化 — ~/.mycoder.json + ~/.mycoder/MYCODER.md
+ * Config 持久化 — 全部收在 ~/.mycoder/ 目录下
+ *   ~/.mycoder/config.json     配置文件
+ *   ~/.mycoder/MYCODER.md      用户记忆
  *
  * 优先级：环境变量 > 配置文件
  * 设计原则：轻量（无锁、无监听、无备份），单用户单进程场景
@@ -23,7 +25,7 @@ function getConfigDir(): string {
 }
 
 function getConfigPath(): string {
-  return join(homedir(), '.mycoder.json');
+  return join(getConfigDir(), 'config.json');
 }
 
 export function getMemoryPath(): string {
@@ -50,9 +52,11 @@ export function loadConfig(): MyCoderConfig {
   }
 }
 
-/** 合并写入 ~/.mycoder.json（读取 → 合并 → 写入） */
+/** 合并写入 ~/.mycoder/config.json（读取 → 合并 → 写入） */
 export function saveConfig(partial: Partial<MyCoderConfig>): void {
   try {
+    const dir = getConfigDir();
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const current = loadConfig();
     const merged: MyCoderConfig = { ...current, ...partial };
     // 清理 undefined
