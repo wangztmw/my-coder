@@ -1,9 +1,12 @@
 /**
  * my-coder — Minimal AI Coding Agent
  * 入口：检测配置 → 选 Provider → 加载工具 → 启动 Agent → 进入 REPL
+ *
+ * 配置优先级：环境变量 > ~/.mycoder.json
+ * 用户记忆：~/.mycoder/MYCODER.md → 自动注入系统提示词
  */
 
-import { detectProvider } from './provider.js';
+import { resolveConfig, saveConfig } from './config.js';
 import { anthropicProvider } from './llm/anthropic.js';
 import { openaiProvider } from './llm/openai.js';
 import { AgentEngine } from './agent.js';
@@ -17,10 +20,17 @@ import { createTask, completeTask, getTaskRegistry } from './task.js';
 // ---- 启动 ----
 
 async function main() {
-  const config = detectProvider();
+  const config = resolveConfig();  // env > ~/.mycoder.json
   const provider = config.provider === 'anthropic' ? anthropicProvider : openaiProvider;
   const tools = getAllTools();
   const taskRegistry = getTaskRegistry();
+
+  // 持久化当前配置（下次启动不需要环境变量）
+  saveConfig({
+    model: config.model,
+    provider: config.provider,
+    openaiBase: config.openaiBase,
+  });
 
   // 创建 Agent 引擎
   const engine = new AgentEngine(provider, tools, config, {
@@ -56,6 +66,7 @@ async function main() {
   // 启动横幅
   console.log(`my-coder v0.4.0`);
   console.log(`Provider: ${config.provider}  |  Model: ${config.model}  |  Tools: ${tools.length}`);
+  console.log(`Config: ~/.mycoder.json  |  Memory: ~/.mycoder/MYCODER.md`);
   console.log('Type /help for commands, /exit to quit\n');
 
   // 进入 REPL

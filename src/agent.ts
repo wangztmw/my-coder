@@ -7,6 +7,7 @@ import type { Tool, Tools, ToolUseContext } from './tools-v2/Tool.js';
 import type { LLMProvider, ChatMessage } from './llm/types.js';
 import type { TaskState } from './task.js';
 import { mdToANSI, B, b } from './ansi.js';
+import { loadMemory } from './config.js';
 
 const SUB_AGENT_PROMPT = 'You are a sub-agent. Complete the assigned task using the available tools. If web tools (WebSearch/WebFetch) fail 2+ times, stop using them and rely on your existing knowledge. Do not keep retrying failed network calls. Return a concise report — prioritize completing quickly over exhaustive searching. Do not ask questions.';
 
@@ -67,10 +68,12 @@ export class AgentEngine {
   buildSystemPrompt(): string {
     const now = new Date().toISOString().split('T')[0];
     const osInfo = `${process.platform} ${process.arch}`;
+    const memory = loadMemory();
     const sections = [
       `你是 my-coder，一个AI编程助手。始终用中文回复用户。`,
       `CWD: ${process.cwd()}  |  Date: ${now}  |  OS: ${osInfo}`,
       ``,
+      ...(memory ? [`## 用户记忆`, memory, ``] : []),
       `## 规则`,
       `- 先说再干，说完立刻调工具。两轮之间给简短状态更新。`,
       `- 编辑前先Read。小改用Edit。独立任务并行调工具。`,
