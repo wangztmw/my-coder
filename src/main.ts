@@ -403,6 +403,8 @@ const G = '\x1b[90m';                           // gray
 function mdToANSI(text: string): string {
   // 非TTY(管道/重定向) → 纯文本
   if (!process.stdout.isTTY) return text.replace(/```[\s\S]*?```/g, '[code]').replace(/[*#`|>-]/g, '');
+  // 超长文本→纯文本(防止Terminal缓冲区溢出——macOS persistent UI内存bug)
+  if (text.length > 8000) return text.replace(/```[\s\S]*?```/g, '[code]').replace(/[*#`|>-]/g, '');
 
   let result = text;
   // 代码块
