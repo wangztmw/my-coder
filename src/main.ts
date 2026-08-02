@@ -145,14 +145,14 @@ async function callLLM(prompt: string, messages: ChatMessage[], label?: string) 
   _thinkStart = Date.now();
   if (!_isSubAgent) {
     _thinkLabel = label || (messages.length <= 2 ? 'analyzing request' : 'processing');
-    process.stderr.write(`  ● Thinking (${_thinkLabel})`);
+    process.stderr.write(`  ● ${B}Thinking${b} (${_thinkLabel})`);
   }
   const result = await _callLLM(prompt, messages);
   if (!_isSubAgent) {
     const elapsed = ((Date.now() - _thinkStart) / 1000).toFixed(1);
     const toolCount = (result.content as Array<{ type: string }>).filter(b => b.type === 'tool_use').length;
     const hint = toolCount > 0 ? ` → ${toolCount} tool${toolCount > 1 ? 's' : ''}` : '';
-    process.stderr.write(`\r  ● Thinking (${elapsed}s) — ${_thinkLabel}${hint}\n`);
+    process.stderr.write(`\r  ● ${B}Thinking${b} (${elapsed}s) — ${_thinkLabel}${hint}\n`);
   }
   return result;
 }
@@ -270,7 +270,7 @@ async function runAgent(userInput: string): Promise<string> {
         const label = m.count > 1 ? `${m.name} ×${m.count}` : m.name;
         const params = m.inputs.join(', ');
         const info = m.count > 1 ? `(${m.lines} lines total)` : `→ ${m.sample}`;
-        console.error(`  ● ${label}: ${params}  ${info}`);
+        console.error(`  ● ${B}${label}${b}: ${params}  ${info}`);
       }
 
       // 组装 toolResults
