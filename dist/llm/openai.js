@@ -2,6 +2,7 @@
  * OpenAI / DeepSeek Provider 实现
  */
 import { z } from 'zod/v4';
+import { fetchWithRetry } from './retry.js';
 export const openaiProvider = {
     name: 'openai',
     formatTools(tools) {
@@ -52,7 +53,7 @@ export const openaiProvider = {
                 });
             }
         }
-        const r = await fetch(`${baseUrl}/v1/chat/completions`, {
+        const r = await fetchWithRetry(`${baseUrl}/v1/chat/completions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -67,7 +68,7 @@ export const openaiProvider = {
             }),
         });
         if (!r.ok)
-            throw new Error(`API ${r.status}: ${await r.text()}`);
+            throw new Error(`API ${r.status}: ${(await r.text()).slice(0, 200)}`);
         const d = await r.json();
         const choice = d.choices?.[0];
         const msg = choice?.message;

@@ -9,6 +9,7 @@ import type { Tool, Tools, ToolUseContext } from './tools-v2/Tool.js';
 import type { LLMProvider, ChatMessage } from './llm/types.js';
 import type { TaskState } from './task.js';
 import { loadMemory } from './config.js';
+import { ConcurrencyLimiter } from './llm/concurrency.js';
 
 // ---- 进度事件类型 ----
 
@@ -29,6 +30,7 @@ export interface MergedTool {
 
 export type ProgressEvent =
   | { type: 'thinking_start'; label: string }
+  | { type: 'thinking_tick'; label: string; elapsedMs: number }
   | { type: 'thinking_end'; label: string; elapsedMs: number; toolCount: number }
   | { type: 'tool_display'; calls: MergedTool[] }
   | { type: 'thought'; text: string }
@@ -63,6 +65,8 @@ export class AgentEngine {
 
   sessionMessages: ChatMessage[] = [];
   pendingNotifications: Array<{ role: string; content: string }> = [];
+  onTurnComplete?: (messages: ChatMessage[], toolCount: number) => void;
+  private llmLimiter = new ConcurrencyLimiter(3);
 
   taskRegistry: Map<string, TaskState>;
   createTask: (type: 'local_agent' | 'local_bash', subject: string, desc?: string) => TaskState;
@@ -72,7 +76,7 @@ export class AgentEngine {
   constructor(
     provider: LLMProvider,
     tools: Tools,
-    config: { apiKey: string; model: string; openaiBase: string },
+    config: { apiKey: string; model: string; openaiBase: string; llmMaxConcurrency?: number },
     deps: {
       taskRegistry: Map<string, TaskState>;
       createTask: (type: 'local_agent' | 'local_bash', subject: string, desc?: string) => TaskState;
@@ -89,6 +93,7 @@ export class AgentEngine {
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.openaiBase = config.openaiBase;
+    if (config.llmMaxConcurrency) this.llmLimiter = new ConcurrencyLimiter(config.llmMaxConcurrency);
     this.taskRegistry = deps.taskRegistry;
     this.createTask = deps.createTask;
     this.completeTask = deps.completeTask;
@@ -108,9 +113,10 @@ export class AgentEngine {
       ``,
       ...(memory ? [`## 用户记忆`, memory, ``] : []),
       `## 规则`,
-      `- 先说再干，说完立刻调工具。两轮之间给简短状态更新。`,
+      `- 先说再干，说完立刻调工具。复杂任务先规划步骤：分析需求→分解子任务→逐步执行→综合结果。`,
       `- 编辑前先Read。小改用Edit。独立任务并行调工具。`,
       `- 有后台Agent时：Task(wait, 15s)→超时→Task(list)→Task(check)卡住的→Task(direct)调控或Task(kill)后重试。`,
+      `- WebSearch/WebFetch如果连续失败→换关键词重试一次，再失败就靠已有知识。不要反复重试同一个失败的搜索。`,
       `- 子Agent完成后检查成功/失败，失败的重试，最终汇总结构化报告。`,
       `- 工具结果重要信息记在回复里（旧结果可能被清除）。卡住时解释试了什么。`,
       `- 不主动用emoji。不重复调已有结果的工具。不擅改git config/跳过hooks/强推。`,
@@ -143,18 +149,28 @@ export class AgentEngine {
 
     onProgress?.({ type: 'thinking_start', label: thinkLabel });
 
-    const formattedTools = this.provider.formatTools(this.tools);
-    const result = await this.provider.call(
-      this.systemPrompt, messages, this.apiKey, this.model,
-      formattedTools, this.openaiBase,
-    );
+    await this.llmLimiter.acquire();
+    try {
+      const tick = setInterval(() => {
+        onProgress?.({ type: 'thinking_tick', label: thinkLabel, elapsedMs: Date.now() - thinkStart });
+      }, 100);
 
-    const elapsedMs = Date.now() - thinkStart;
-    const toolCount = (result.content as Array<{ type: string }>).filter(b => b.type === 'tool_use').length;
+      const formattedTools = this.provider.formatTools(this.tools);
+      const result = await this.provider.call(
+        this.systemPrompt, messages, this.apiKey, this.model,
+        formattedTools, this.openaiBase,
+      );
+      clearInterval(tick);
 
-    onProgress?.({ type: 'thinking_end', label: thinkLabel, elapsedMs, toolCount });
+      const elapsedMs = Date.now() - thinkStart;
+      const toolCount = (result.content as Array<{ type: string }>).filter(b => b.type === 'tool_use').length;
 
-    return result;
+      onProgress?.({ type: 'thinking_end', label: thinkLabel, elapsedMs, toolCount });
+
+      return result;
+    } finally {
+      this.llmLimiter.release();
+    }
   }
 
   // ---- 通知管理 ----
@@ -208,6 +224,8 @@ export class AgentEngine {
         this.sessionMessages.push({ role: 'assistant', content: response.content });
         const text = (response.content as Array<{ type: string; text?: string }>)
           .filter(b => b.type === 'text').map(b => b.text || '').join('\n');
+        const tc = (response.content as Array<{ type: string }>).filter(b => b.type === 'tool_use').length;
+        this.onTurnComplete?.(this.sessionMessages, tc);
         return { text, ms: Date.now() - startTime };
       }
 

@@ -106,6 +106,7 @@ export function resolveConfig(): {
   model: string;
   provider: 'anthropic' | 'openai';
   openaiBase: string;
+  llmMaxConcurrency: number;
 } {
   const fileConfig = loadConfig();
   const envApiKey = process.env.MYCODER_API_KEY || process.env.ANTHROPIC_API_KEY || '';
@@ -125,6 +126,7 @@ export function resolveConfig(): {
     || (provider === 'openai' ? 'deepseek-chat' : 'claude-sonnet-5-20251001');
 
   const openaiBase = process.env.OPENAI_BASE_URL || fileConfig.openaiBase || 'https://api.deepseek.com';
+  const llmMaxConcurrency = (fileConfig as Record<string, unknown>).llmMaxConcurrency as number | undefined ?? 3;
 
-  return { apiKey, model, provider, openaiBase };
+  return { apiKey, model, provider, openaiBase, llmMaxConcurrency };
 }

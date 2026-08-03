@@ -5,6 +5,7 @@
 import { z } from 'zod/v4';
 import type { Tools } from '../tools-v2/Tool.js';
 import type { LLMProvider, ChatMessage, LLMResponse } from './types.js';
+import { fetchWithRetry } from './retry.js';
 
 export const openaiProvider: LLMProvider = {
   name: 'openai',
@@ -58,7 +59,7 @@ export const openaiProvider: LLMProvider = {
       }
     }
 
-    const r = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const r = await fetchWithRetry(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -72,7 +73,7 @@ export const openaiProvider: LLMProvider = {
         tool_choice: 'auto',
       }),
     });
-    if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`);
+    if (!r.ok) throw new Error(`API ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const d = await r.json() as Record<string, unknown>;
     const choice = (d.choices as Array<Record<string, unknown>>)?.[0];
     const msg = choice?.message as Record<string, unknown> | undefined;

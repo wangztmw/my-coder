@@ -5,6 +5,7 @@
  * 所有进度和状态通过 onProgress 回调传给 CLI 层。
  */
 import { loadMemory } from './config.js';
+import { ConcurrencyLimiter } from './llm/concurrency.js';
 // ---- 工具函数 ----
 export function briefResult(data) {
     const firstLine = data.split('\n')[0].slice(0, 80);
@@ -23,6 +24,8 @@ export class AgentEngine {
     systemPrompt;
     sessionMessages = [];
     pendingNotifications = [];
+    onTurnComplete;
+    llmLimiter = new ConcurrencyLimiter(3);
     taskRegistry;
     createTask;
     completeTask;
@@ -38,6 +41,8 @@ export class AgentEngine {
         this.apiKey = config.apiKey;
         this.model = config.model;
         this.openaiBase = config.openaiBase;
+        if (config.llmMaxConcurrency)
+            this.llmLimiter = new ConcurrencyLimiter(config.llmMaxConcurrency);
         this.taskRegistry = deps.taskRegistry;
         this.createTask = deps.createTask;
         this.completeTask = deps.completeTask;
@@ -55,9 +60,10 @@ export class AgentEngine {
             ``,
             ...(memory ? [`## 用户记忆`, memory, ``] : []),
             `## 规则`,
-            `- 先说再干，说完立刻调工具。两轮之间给简短状态更新。`,
+            `- 先说再干，说完立刻调工具。复杂任务先规划步骤：分析需求→分解子任务→逐步执行→综合结果。`,
             `- 编辑前先Read。小改用Edit。独立任务并行调工具。`,
             `- 有后台Agent时：Task(wait, 15s)→超时→Task(list)→Task(check)卡住的→Task(direct)调控或Task(kill)后重试。`,
+            `- WebSearch/WebFetch如果连续失败→换关键词重试一次，再失败就靠已有知识。不要反复重试同一个失败的搜索。`,
             `- 子Agent完成后检查成功/失败，失败的重试，最终汇总结构化报告。`,
             `- 工具结果重要信息记在回复里（旧结果可能被清除）。卡住时解释试了什么。`,
             `- 不主动用emoji。不重复调已有结果的工具。不擅改git config/跳过hooks/强推。`,
@@ -82,12 +88,22 @@ export class AgentEngine {
         const thinkStart = Date.now();
         const thinkLabel = label || (messages.length <= 2 ? 'analyzing request' : 'processing');
         onProgress?.({ type: 'thinking_start', label: thinkLabel });
-        const formattedTools = this.provider.formatTools(this.tools);
-        const result = await this.provider.call(this.systemPrompt, messages, this.apiKey, this.model, formattedTools, this.openaiBase);
-        const elapsedMs = Date.now() - thinkStart;
-        const toolCount = result.content.filter(b => b.type === 'tool_use').length;
-        onProgress?.({ type: 'thinking_end', label: thinkLabel, elapsedMs, toolCount });
-        return result;
+        await this.llmLimiter.acquire();
+        try {
+            const tick = setInterval(() => {
+                onProgress?.({ type: 'thinking_tick', label: thinkLabel, elapsedMs: Date.now() - thinkStart });
+            }, 100);
+            const formattedTools = this.provider.formatTools(this.tools);
+            const result = await this.provider.call(this.systemPrompt, messages, this.apiKey, this.model, formattedTools, this.openaiBase);
+            clearInterval(tick);
+            const elapsedMs = Date.now() - thinkStart;
+            const toolCount = result.content.filter(b => b.type === 'tool_use').length;
+            onProgress?.({ type: 'thinking_end', label: thinkLabel, elapsedMs, toolCount });
+            return result;
+        }
+        finally {
+            this.llmLimiter.release();
+        }
     }
     // ---- 通知管理 ----
     flushNotifications() {
@@ -133,6 +149,8 @@ export class AgentEngine {
                 this.sessionMessages.push({ role: 'assistant', content: response.content });
                 const text = response.content
                     .filter(b => b.type === 'text').map(b => b.text || '').join('\n');
+                const tc = response.content.filter(b => b.type === 'tool_use').length;
+                this.onTurnComplete?.(this.sessionMessages, tc);
                 return { text, ms: Date.now() - startTime };
             }
             if (response.stop_reason === 'tool_use') {

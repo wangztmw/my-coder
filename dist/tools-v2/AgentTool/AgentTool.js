@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 import { buildTool } from '../Tool.js';
 import { DESCRIPTION } from './prompt.js';
+import { createTask, completeTask } from '../../task.js';
 const inputSchema = z.object({
     description: z.string().describe('Short (3-5 word) description'),
     prompt: z.string().describe('The task for the sub-agent to complete. Be specific.'),
@@ -30,27 +31,17 @@ export const AgentTool = buildTool({
         if (!_tasks || !_runSubAgent || !_buildSubAgentContext || !_notify) {
             return { data: 'Agent system not initialized.' };
         }
-        const id = 'a' + Math.random().toString(36).slice(2, 10);
+        // Phase 56: 使用 createTask 创建 pending 状态任务
+        const task = createTask('local_agent', description, prompt.slice(0, 200));
         const msgs = _buildSubAgentContext(prompt);
-        // 在共享 taskRegistry 里创建 TaskState
-        _tasks.set(id, {
-            id, type: 'local_agent', status: 'running', subject: description,
-            startTime: Date.now(),
-            agentLoop: { roundCount: 0, toolUseCount: 0 },
-            abortController: new AbortController(),
-        });
         if (run_in_background) {
-            _runSubAgent(msgs, id).then(result => {
-                const t = _tasks.get(id);
-                if (t) {
-                    t.status = 'completed';
-                    t.endTime = Date.now();
-                    t.output = result;
-                }
+            // 后台执行：pending → running → completeTask
+            _runSubAgent(msgs, task.id).then(result => {
+                completeTask(task.id, result);
                 const active = [..._tasks.values()].filter((x) => x.status === 'running').length;
-                _notify(`[Agent "${description}" completed${active > 0 ? ` — ${active} running` : ''}]:\n${result.slice(0, 1000)}`);
+                _notify(`[Agent "${description}" completed${active > 0 ? ` — ${active} running` : ''}]:\n${result.slice(0, 1500)}${result.length > 1500 ? `\n... (${result.length - 1500} more chars. Use Task(check, ${task.id}) for full report.)` : ''}`);
             }).catch(err => {
-                const t = _tasks.get(id);
+                const t = _tasks.get(task.id);
                 if (t) {
                     t.status = 'failed';
                     t.endTime = Date.now();
@@ -58,16 +49,11 @@ export const AgentTool = buildTool({
                 }
                 _notify(`[Agent "${description}" failed]: ${err.message}`);
             });
-            return { data: `Agent spawned: ${id} ("${description}" running in background)` };
+            return { data: `Agent spawned: ${task.id} ("${description}" pending in background)` };
         }
-        // 同步模式
-        const result = await _runSubAgent(msgs, id);
-        const t = _tasks.get(id);
-        if (t) {
-            t.status = 'completed';
-            t.endTime = Date.now();
-            t.output = result;
-        }
+        // 同步模式：pending → 执行 → completeTask
+        const result = await _runSubAgent(msgs, task.id);
+        completeTask(task.id, result);
         return { data: `[Agent "${description}" report]:\n${result}` };
     },
     async prompt() { return `## Agent\n${DESCRIPTION}\nInput: { description, prompt, subagent_type?, run_in_background? }`; },

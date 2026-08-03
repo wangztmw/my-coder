@@ -5,6 +5,7 @@
 import { z } from 'zod/v4';
 import type { Tools } from '../tools-v2/Tool.js';
 import type { LLMProvider, ChatMessage, LLMResponse } from './types.js';
+import { fetchWithRetry } from './retry.js';
 
 export const anthropicProvider: LLMProvider = {
   name: 'anthropic',
@@ -34,7 +35,7 @@ export const anthropicProvider: LLMProvider = {
         .map(m => ({ role: m.role, content: m.content })),
       tools,
     };
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    const r = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -43,7 +44,7 @@ export const anthropicProvider: LLMProvider = {
       },
       body: JSON.stringify(body),
     });
-    if (!r.ok) throw new Error(`API ${r.status}: ${await r.text()}`);
+    if (!r.ok) throw new Error(`API ${r.status}: ${(await r.text()).slice(0, 200)}`);
     const d = await r.json() as Record<string, unknown>;
     return {
       content: (d.content as Array<unknown>) || [],

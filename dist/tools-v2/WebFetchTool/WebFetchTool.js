@@ -12,20 +12,27 @@ export const WebFetchTool = buildTool({
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     async call({ url, prompt }, _ctx) {
+        const start = Date.now();
+        const timeout = 8000;
         try {
             const r = await fetch(url.startsWith('http') ? url : `https://${url}`, {
                 headers: { 'User-Agent': 'my-coder/0.2' },
-                signal: AbortSignal.timeout(8000),
+                signal: AbortSignal.timeout(timeout),
             });
             if (!r.ok)
-                return { data: `Fetch failed: ${r.status} ${r.statusText}` };
+                return { data: `Fetch failed after ${Date.now() - start}ms: ${r.status}` };
             const html = await r.text();
-            // Simple text extraction: remove tags
             const text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000);
             return { data: `${text}\n\n(Prompt: ${prompt})` };
         }
         catch (e) {
-            return { data: `Fetch error: ${e.message}` };
+            const elapsed = Date.now() - start;
+            const err = e;
+            const isTimeout = err.name === 'TimeoutError' || err.message.includes('abort');
+            if (isTimeout) {
+                return { data: `Fetch timed out after ${elapsed}ms (limit: ${timeout}ms). The site may be slow or unreachable. Retry with a different URL, or skip this source.` };
+            }
+            return { data: `Fetch error after ${elapsed}ms: ${err.message}` };
         }
     },
     async prompt() { return `## WebFetch\n${DESCRIPTION}\nInput: { url, prompt }`; },

@@ -1,3 +1,1 @@
-export const DESCRIPTION = `Search the web. Use for finding current information, documentation, error messages.
-- Returns search result titles and URLs.
-- US-only results by default.`;
+export const DESCRIPTION = `Search the web via DuckDuckGo. Use for: current info, docs, errors, events. 8s timeout — if search times out twice, use prior knowledge instead.`;

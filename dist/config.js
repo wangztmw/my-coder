@@ -109,5 +109,6 @@ export function resolveConfig() {
         || fileConfig.model
         || (provider === 'openai' ? 'deepseek-chat' : 'claude-sonnet-5-20251001');
     const openaiBase = process.env.OPENAI_BASE_URL || fileConfig.openaiBase || 'https://api.deepseek.com';
-    return { apiKey, model, provider, openaiBase };
+    const llmMaxConcurrency = fileConfig.llmMaxConcurrency ?? 3;
+    return { apiKey, model, provider, openaiBase, llmMaxConcurrency };
 }

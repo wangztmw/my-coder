@@ -3,7 +3,8 @@
  * 零外部依赖，非 TTY 自动降级
  */
 
-const B = '\x1b[1m';   const b = '\x1b[22m';   // bold
+const C = '\x1b[36m';
+const B = '\x1b[1m';   const b = '\x1b[22m';   // cyan / bold
 const D = '\x1b[2m';   const d = '\x1b[22m';   // dim
 const G = '\x1b[90m';  const c = '\x1b[39m';   // gray → reset
 
@@ -53,4 +54,4 @@ export function mdToANSI(text: string): string {
 }
 
 /** ANSI 粗体标签（给 CLI 用） */
-export { B, b, D, d, G, c };
+export { C, B, b, D, d, G, c };

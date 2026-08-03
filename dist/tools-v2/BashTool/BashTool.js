@@ -97,7 +97,9 @@ export const BashTool = buildTool({
             child.on('close', code => {
                 const out = code === 0 ? stdout || '(no output)' : `Exit ${code}\n${stdout}\n${stderr}`;
                 _bgHooks.completeTask(task.id, out);
-                _bgHooks.notify(`[Bash "${description || command.slice(0, 60)}" completed${code === 0 ? '' : ` (exit ${code})`}]:\n${out.slice(0, 1000)}`);
+                const preview = out.slice(0, 1000);
+                const hint = out.length > 1000 ? `\n... (${out.length - 1000} more chars. Use Task(check, ${task.id}) for full output.)` : '';
+                _bgHooks.notify(`[Bash "${description || command.slice(0, 60)}" completed${code === 0 ? '' : ` (exit ${code})`}]:\n${preview}${hint}`);
             });
             return { data: `Background task spawned: ${task.id} ("${description || command.slice(0, 60)}")` };
         }

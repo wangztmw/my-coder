@@ -1,3 +1,1 @@
-export const DESCRIPTION = `Fetch a URL and extract content as markdown. Use for reading documentation pages, API references.
-- HTTP upgraded to HTTPS automatically.
-- Results cached for 15 minutes.`;
+export const DESCRIPTION = `Fetch a URL and extract text (max 5000 chars). 8s timeout. WILL FAIL for login-walled pages (Google Docs, Jira, paywalls). For GitHub use Bash with gh CLI instead.`;

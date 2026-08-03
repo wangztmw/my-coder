@@ -2,6 +2,7 @@
  * Anthropic Provider 实现
  */
 import { z } from 'zod/v4';
+import { fetchWithRetry } from './retry.js';
 export const anthropicProvider = {
     name: 'anthropic',
     formatTools(tools) {
@@ -27,7 +28,7 @@ export const anthropicProvider = {
                 .map(m => ({ role: m.role, content: m.content })),
             tools,
         };
-        const r = await fetch('https://api.anthropic.com/v1/messages', {
+        const r = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -37,7 +38,7 @@ export const anthropicProvider = {
             body: JSON.stringify(body),
         });
         if (!r.ok)
-            throw new Error(`API ${r.status}: ${await r.text()}`);
+            throw new Error(`API ${r.status}: ${(await r.text()).slice(0, 200)}`);
         const d = await r.json();
         return {
             content: d.content || [],

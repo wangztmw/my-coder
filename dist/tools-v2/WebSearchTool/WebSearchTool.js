@@ -11,12 +11,13 @@ export const WebSearchTool = buildTool({
     isReadOnly: () => true,
     isConcurrencySafe: () => true,
     async call({ query }, _ctx) {
+        const start = Date.now();
+        const timeout = 8000;
         try {
-            // DuckDuckGo Lite — no API key needed, returns HTML
             const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
             const r = await fetch(url, {
                 headers: { 'User-Agent': 'my-coder/0.3' },
-                signal: AbortSignal.timeout(8000),
+                signal: AbortSignal.timeout(timeout),
             });
             if (!r.ok)
                 return { data: `Search failed: ${r.status}` };
@@ -39,7 +40,13 @@ export const WebSearchTool = buildTool({
             return { data: results.join('\n\n') };
         }
         catch (e) {
-            return { data: `Search error: ${e.message}` };
+            const elapsed = Date.now() - start;
+            const err = e;
+            const isTimeout = err.name === 'TimeoutError' || err.message.includes('abort');
+            if (isTimeout) {
+                return { data: `Search timed out after ${elapsed}ms (limit: ${timeout}ms). The network may be slow or unreachable. Consider retrying with a different query, or skip search and use prior knowledge.` };
+            }
+            return { data: `Search error after ${elapsed}ms: ${err.message}` };
         }
     },
     async prompt() { return `## WebSearch\n${DESCRIPTION}\nInput: { query }`; },
