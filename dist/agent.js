@@ -26,9 +26,9 @@ export class AgentEngine {
     pendingNotifications = [];
     onTurnComplete;
     llmLimiter = new ConcurrencyLimiter(3);
-    taskRegistry;
-    createTask;
-    completeTask;
+    team;
+    addMember;
+    completeMember;
     notify;
     constructor(provider, tools, config, deps) {
         this.provider = provider;
@@ -43,9 +43,9 @@ export class AgentEngine {
         this.openaiBase = config.openaiBase;
         if (config.llmMaxConcurrency)
             this.llmLimiter = new ConcurrencyLimiter(config.llmMaxConcurrency);
-        this.taskRegistry = deps.taskRegistry;
-        this.createTask = deps.createTask;
-        this.completeTask = deps.completeTask;
+        this.team = deps.teamReg;
+        this.addMember = deps.addMember;
+        this.completeMember = deps.completeMember;
         this.notify = (msg) => { this.pendingNotifications.push({ role: 'user', content: msg }); };
         this.systemPrompt = this.buildSystemPrompt();
     }
@@ -203,7 +203,7 @@ export class AgentEngine {
     }
     // ---- 子 Agent 引擎（静默——不传 onProgress） ----
     async runSubAgent(taskPrompt, agentId) {
-        const task = this.taskRegistry.get(agentId);
+        const task = this.team.get(agentId);
         if (task)
             task.status = 'running';
         const messages = [
@@ -227,7 +227,7 @@ export class AgentEngine {
                 if (response.stop_reason === 'end_turn') {
                     const text = response.content
                         .filter(b => b.type === 'text').map(b => b.text || '').join('\n');
-                    this.completeTask(agentId, text);
+                    this.completeMember(agentId, text);
                     return text || '(done)';
                 }
                 if (response.stop_reason === 'tool_use') {

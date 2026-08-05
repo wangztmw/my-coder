@@ -1,0 +1,1 @@
+export const DESCRIPTION = `Manage agent team members (background agents and bash tasks). Actions: list, check, wait, kill, inbox, direct. Use direct to inject new instructions into a running agent.`;

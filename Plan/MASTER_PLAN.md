@@ -1,22 +1,61 @@
-# my-coder: Phase 7-12 深度清理与模块串联计划
+# my-coder: 主计划
 
-> **创建时间**：2026-08-01
-> **核心关键词**：逐文件清理、去遥测、去Anthropic控制、import修复、模块串联
+> **当前版本**：v0.5.0
+> **最后更新**：2026-08-04
 
 ---
 
-## 当前状态摸底
+## 当前状态
 
-### 三类需要处理的代码
+- **代码**：src/ 40 文件，2816 行
+- **发布**：npm `@wangzt_mw/my-coder@0.5.0` 已发布
+- **GitHub**：`wangztmw/my-coder` 已推送（`fdec6f9`）
+- **Plan**：56 个 .md 文件，覆盖 Agent/terminal/pipeline/tool/大模型
 
-| 类型 | 影响文件 | 说明 |
-|------|---------|------|
-| **遥测/分析残留** | ~20文件 | telemetry/sentry/posthog/datadog等关键词仍嵌在代码中 |
-| **引用已删除模块** | ~20文件 | bootstrap/state/hooks/context/memdir/commands等import断裂 |
-| **Anthropic内部功能** | ~20文件 | `feature()`/`bun:bundle`/`MACRO.*`/`USER_TYPE`——编译时注入的专有宏 |
-| **UI组件引用** | ~20文件 | 每个工具都有UI.tsx文件，引用已被删除的Ink/React模块 |
+---
 
-### 工具复杂度排序（从简到难）
+## 进行中
+
+| 计划 | 文件 | 状态 |
+|------|------|------|
+| task.ts → team.ts 重命名 | [plan-rename-task.md](./plan-rename-task.md) | 📋 规划中 |
+
+## 待实施
+
+| Phase | 内容 | 文件 |
+|-------|------|------|
+| 51 | 子Agent 工具限制 | Plan/Agent/phase-51 |
+| 53 | 上下文注入 + 通知合并 | Plan/Agent/phase-53 |
+| 54 | 进程清理 + 超时 | Plan/Agent/phase-54 |
+| 57 | 推理预算管理 | Plan/Agent/phase-57 |
+| — | 管道化重构 | Plan/pipeline/ |
+| — | 工具层安全/权限/沙箱 | Plan/tool/ |
+| — | 大模型层上下文压缩 | Plan/大模型/ |
+
+---
+
+## 已完成
+
+| Phase | 内容 | 日期 |
+|-------|------|------|
+| 52 | LLM 并发信号量 | 08-03 |
+| 55 | 事件驱动 stdin + 输入队列 | 08-03 |
+| 56 | Task 系统升级（pending/disk/notified） | 08-03 |
+| — | 终端崩溃修复（term-wrap） | 08-03 |
+| — | 网络可靠性（retry.ts） | 08-03 |
+| — | 会话持久化（session.ts） | 08-03 |
+| — | Claude Code 执行机制完整研究 | 08-04 |
+
+---
+
+## 历史记录
+
+<details>
+<summary>Phase 0-50（展开查看）</summary>
+
+原 MASTER_PLAN 内容：Phase 7-12 深度清理，工具复杂度排序，等等。
+
+</details>
 
 | 工具 | 文件数 | 行数 | import数 | 难度 |
 |------|--------|------|----------|------|

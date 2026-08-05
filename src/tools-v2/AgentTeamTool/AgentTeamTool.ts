@@ -1,6 +1,6 @@
 import { z } from 'zod/v4';
 import { buildTool, type ToolUseContext, type ToolResult } from '../Tool.js';
-import { readTaskOutput } from '../../task.js';
+import { readMemberOutput } from '../../agent_team.js';
 
 const inputSchema = z.object({
   action: z.enum(['list', 'check', 'wait', 'kill', 'inbox', 'direct']).describe('What to do'),
@@ -26,23 +26,26 @@ export function initTaskTool(deps: {
 
 function fmtTask(t: { id: string; status: string; subject: string; type: string;
   startTime: number; agentLoop?: { roundCount: number; toolUseCount: number; lastActivity?: string; lastOutput?: string };
-  output?: string; endTime?: number;
+  output?: string; endTime?: number; feedback?: string;
 }): string {
   const elapsed = Math.round(((t.endTime || Date.now()) - t.startTime) / 1000);
-  const icon = t.status === 'running' ? '⏳' : t.status === 'completed' ? '✓' : t.status === 'killed' ? '✗' : '?';
+  const icon = t.status === 'running' ? '⏳' : t.status === 'completed' ? '✓' : t.status === 'blocked' ? '⏸' : t.status === 'killed' ? '✗' : '?';
   let line = `${icon} [${t.status}] ${t.id}: ${t.subject} (${elapsed}s)`;
-  if (t.agentLoop && t.status === 'running') {
+  if (t.agentLoop && (t.status === 'running' || t.status === 'blocked')) {
     line += ` — round ${t.agentLoop.roundCount}, ${t.agentLoop.toolUseCount} tools`;
     if (t.agentLoop.lastActivity) line += `, last: ${t.agentLoop.lastActivity}`;
   }
-  if (t.output && t.status !== 'running') {
+  if (t.feedback) {
+    line += `\n       💬 "${t.feedback.slice(0, 100)}"`;
+  }
+  if (t.output && t.status !== 'running' && t.status !== 'blocked') {
     line += ` → ${t.output.slice(0, 80)}`;
   }
   return line;
 }
 
-export const TaskTool = buildTool({
-  name: 'Task',
+export const AgentTeamTool = buildTool({
+  name: 'AgentTeam',
   inputSchema,
   async description() {
     return 'Manage background tasks. Actions: list, check, wait, kill, inbox, direct. Use direct to inject new instructions into a RUNNING agent — it will see the instruction on its next turn. Use this to redirect stuck agents instead of killing them.';
@@ -77,7 +80,7 @@ export const TaskTool = buildTool({
           if (t.agentLoop.lastOutput) result += `  Last output: ${t.agentLoop.lastOutput.slice(0, 300)}\n`;
         }
         // 优先读磁盘完整输出，内存摘要作 fallback
-        const diskOutput = readTaskOutput(taskId);
+        const diskOutput = readMemberOutput(taskId);
         if (diskOutput) {
           result += `\nOutput (full):\n${diskOutput.slice(0, 3000)}`;
           if (diskOutput.length > 3000) result += `\n... (${diskOutput.length - 3000} more chars)`;
@@ -139,8 +142,8 @@ export const TaskTool = buildTool({
   },
 
   async prompt() { return '## Task\nManage background tasks: list, check, wait, kill, inbox.'; },
-  userFacingName: () => 'Task',
+  userFacingName: () => 'AgentTeam',
   getToolUseSummary({ action, taskId }: Partial<z.infer<typeof inputSchema>>) {
-    return `Task: ${action}${taskId ? ` ${taskId}` : ''}`;
+    return `AgentTeam: ${action}${taskId ? ` ${taskId}` : ''}`;
   },
 });

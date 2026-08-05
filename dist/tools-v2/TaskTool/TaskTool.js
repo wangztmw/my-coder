@@ -1,6 +1,6 @@
 import { z } from 'zod/v4';
 import { buildTool } from '../Tool.js';
-import { readTaskOutput } from '../../task.js';
+import { readMemberOutput } from '../../team.js';
 const inputSchema = z.object({
     action: z.enum(['list', 'check', 'wait', 'kill', 'inbox', 'direct']).describe('What to do'),
     taskId: z.string().optional().describe('Task ID (for check/kill/direct)'),
@@ -65,7 +65,7 @@ export const TaskTool = buildTool({
                         result += `  Last output: ${t.agentLoop.lastOutput.slice(0, 300)}\n`;
                 }
                 // 优先读磁盘完整输出，内存摘要作 fallback
-                const diskOutput = readTaskOutput(taskId);
+                const diskOutput = readMemberOutput(taskId);
                 if (diskOutput) {
                     result += `\nOutput (full):\n${diskOutput.slice(0, 3000)}`;
                     if (diskOutput.length > 3000)

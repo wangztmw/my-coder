@@ -9,7 +9,7 @@ import { WebFetchTool } from './WebFetchTool/WebFetchTool.js';
 import { MCPTool } from './MCPTool/MCPTool.js';
 import { SkillTool } from './SkillTool/SkillTool.js';
 import { AgentTool } from './AgentTool/AgentTool.js';
-import { TaskTool } from './TaskTool/TaskTool.js';
+import { AgentTeamTool } from './AgentTeamTool/AgentTeamTool.js';
 export function getAllTools() {
     return [
         BashTool,
@@ -23,6 +23,6 @@ export function getAllTools() {
         MCPTool,
         SkillTool,
         AgentTool,
-        TaskTool,
+        AgentTeamTool,
     ].filter(t => t.isEnabled());
 }

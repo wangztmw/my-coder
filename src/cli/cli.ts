@@ -7,7 +7,8 @@
  */
 import { createInterface } from 'node:readline';
 import { mdToANSI, B, b, C, c, D, d } from './ansi.js';
-import type { AgentEngine, ProgressEvent, MergedTool } from '../agent.js';
+import type { AgentEngine, ProgressEvent, MergedTool } from '../agent_def.js';
+import { agentLoop } from '../session_loop.js';
 import { unlockSession } from '../session.js';
 
 // ---- 渲染函数 — 唯一调用 mdToANSI 和 ANSI 常量的地方 ----
@@ -104,7 +105,20 @@ export async function startCLI(engine: AgentEngine, tools: ReadonlyArray<{ name:
 
       try {
         console.log('');
-        const result = await engine.run(current, renderProgress);
+        const startTime = Date.now();
+        engine.flushNotifications();
+        engine.sessionMessages.push({ role: 'user', content: current });
+
+        const resultText = await agentLoop(engine, {
+          messages: engine.sessionMessages,
+          maxRounds: 25,
+          onProgress: renderProgress,
+          onTurnComplete: (msgs, tc) => engine.onTurnComplete?.(msgs, tc),
+          phaseLabel: (i, lastMsg) => i === 0 ? 'analyzing' :
+            typeof lastMsg === 'string' && lastMsg.length < 200 ? 'continuing' : 'reviewing results',
+        });
+
+        const result = { text: resultText, ms: Date.now() - startTime };
         console.log(`\n${mdToANSI(result.text)}\n[${result.ms}ms]\n`);
       } catch (e) {
         const err = e as Error & { cause?: Error };

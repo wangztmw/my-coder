@@ -9,14 +9,14 @@
 import { resolveConfig, saveConfig } from './config.js';
 import { anthropicProvider } from './llm/anthropic.js';
 import { openaiProvider } from './llm/openai.js';
-import { AgentEngine } from './agent.js';
+import { AgentEngine } from './agent_def.js';
 import type { ChatMessage } from './llm/types.js';
 import { startCLI } from './cli/cli.js';
 import { getAllTools } from './tools-v2/index.js';
 import { initAgentTool } from './tools-v2/AgentTool/AgentTool.js';
 import { initBashBg } from './tools-v2/BashTool/BashTool.js';
-import { initTaskTool } from './tools-v2/TaskTool/TaskTool.js';
-import { createTask, completeTask, getTaskRegistry, cleanOldTasks } from './task.js';
+import { initTaskTool } from './tools-v2/AgentTeamTool/AgentTeamTool.js';
+import { addMember, completeMember, getTeam, cleanOldMembers } from './agent_team.js';
 import { protectTerminal } from './cli/term-wrap.js';
 import { lockSession, unlockSession, hasUnfinishedSession, loadSession, saveSession } from './session.js';
 
@@ -24,7 +24,7 @@ import { lockSession, unlockSession, hasUnfinishedSession, loadSession, saveSess
 
 async function main() {
   protectTerminal(); // 终端行宽保护：必须在任何输出之前注册
-  cleanOldTasks();   // 清理 7 天前旧任务文件
+  cleanOldMembers(); // 清理 7 天前旧成员文件
 
   // 支持 --resume 恢复上次未完成会话
   const resumeIdx = process.argv.indexOf('--resume');
@@ -37,7 +37,7 @@ async function main() {
   const config = resolveConfig();  // env > ~/.mycoder.json
   const provider = config.provider === 'anthropic' ? anthropicProvider : openaiProvider;
   const tools = getAllTools();
-  const taskRegistry = getTaskRegistry();
+  const teamReg = getTeam();
 
   // 持久化当前配置（下次启动不需要环境变量）
   // 如果 API key 来自环境变量，写入配置文件（仅此一次）
@@ -55,9 +55,9 @@ async function main() {
   lockSession(sessionId); // 标记会话开始
 
   const engine = new AgentEngine(provider, tools, config, {
-    taskRegistry,
-    createTask,
-    completeTask,
+    teamReg,
+    addMember,
+    completeMember,
   });
 
   // 恢复未完成会话
@@ -78,24 +78,19 @@ async function main() {
 
   // 初始化依赖 Agent 引擎的工具
   initAgentTool({
-    taskRegistry,
-    runSubAgent: (msgs, id) => engine.runSubAgent(
-      typeof msgs[0]?.content === 'string' ? msgs[0].content : '', id
-    ),
-    buildSubAgentContext: (taskPrompt: string) => [
-      { role: 'user' as const, content: `Complete this task:\n${taskPrompt}\n\nReturn a concise report.` },
-    ],
+    taskRegistry: teamReg,
+    engine,
     notify: (msg: string) => engine.notify(msg),
   });
 
   initBashBg({
-    createTask: createTask as (t: string, d: string) => unknown,
-    completeTask,
+    createTask: addMember as (t: string, d: string) => unknown,
+    completeTask: completeMember,
     notify: (msg: string) => engine.notify(msg),
   });
 
   initTaskTool({
-    taskRegistry,
+    taskRegistry: teamReg,
     notify: (msg: string) => engine.notify(msg),
     pendingNotifications: engine.pendingNotifications,
   });
