@@ -69,7 +69,13 @@ export const openaiProvider = {
         });
         if (!r.ok)
             throw new Error(`API ${r.status}: ${(await r.text()).slice(0, 200)}`);
-        const d = await r.json();
+        let d;
+        try {
+            d = await r.json();
+        }
+        catch (e) {
+            throw new Error(`Unterminated string in JSON: ${e.message}`.slice(0, 200));
+        }
         const choice = d.choices?.[0];
         const msg = choice?.message;
         if (!msg)

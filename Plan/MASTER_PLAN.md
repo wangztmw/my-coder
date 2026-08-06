@@ -1,40 +1,77 @@
 # my-coder: 主计划
 
-> **当前版本**：v0.5.0
-> **最后更新**：2026-08-04
+> **当前版本**：v0.6.0
+> **最后更新**：2026-08-06
 
 ---
 
 ## 当前状态
 
-- **代码**：src/ 40 文件，2816 行
-- **发布**：npm `@wangzt_mw/my-coder@0.5.0` 已发布
-- **GitHub**：`wangztmw/my-coder` 已推送（`fdec6f9`）
-- **Plan**：56 个 .md 文件，覆盖 Agent/terminal/pipeline/tool/大模型
+- **代码**：src/ ~55 文件，~6,200 行（含 task_tree/ 10 文件 2,952 行）
+- **工具**：14 个（新增 TreeCmdTool）
+- **任务树系统**：完整实现——建树/分解/派发/同步/WAL/恢复/收敛/文件锁/级联终止
+- **发布**：npm `@wangzt_mw/my-coder@0.5.1` 已发布
+- **Plan**：60+ .md 文件，覆盖 Agent/terminal/pipeline/tool/大模型
 
 ---
 
 ## 进行中
 
-| 计划 | 文件 | 状态 |
+| 项目 | 内容 | 文件 |
 |------|------|------|
-| task.ts → team.ts 重命名 | [plan-rename-task.md](./plan-rename-task.md) | 📋 规划中 |
+| — | **锦上添花**：断连信号修复（9 断开 + 7 部分 = 16 项） | [plan-jin-shang-tian-hua.md](plan-jin-shang-tian-hua.md) |
 
 ## 待实施
 
-| Phase | 内容 | 文件 |
-|-------|------|------|
-| 51 | 子Agent 工具限制 | Plan/Agent/phase-51 |
-| 53 | 上下文注入 + 通知合并 | Plan/Agent/phase-53 |
-| 54 | 进程清理 + 超时 | Plan/Agent/phase-54 |
-| 57 | 推理预算管理 | Plan/Agent/phase-57 |
-| — | 管道化重构 | Plan/pipeline/ |
+| 项目 | 内容 | 文件 |
+|------|------|------|
 | — | 工具层安全/权限/沙箱 | Plan/tool/ |
 | — | 大模型层上下文压缩 | Plan/大模型/ |
 
 ---
 
 ## 已完成
+
+### 任务树系统（2026-08-05 ~ 2026-08-06）
+
+| Phase | 内容 | 产出 |
+|-------|------|------|
+| 设计 | 语义驱动的层次化 Agent 集群 | [plan-task-tree-overview.md](pipeline/plan-task-tree-overview.md) |
+| 审查 | 6 Agent 并行审查（交叉冲突/实现风险/性能/遗漏/成本/架构） | [plan-task-tree-review.md](pipeline/plan-task-tree-review.md) |
+| 0 | 类型地基（21 类型/接口） | `src/task_tree/types.ts`（220行） |
+| 1 | 核心引擎（core/lock/persist/wal/cascade） | 5 文件，1,630 行，29 函数 |
+| 2 | LoopResult 单向门（agentLoop 返回结构化类型） | session_loop/cli/AgentTool/agent_team/agent_def |
+| 3 | 工具集成（TreeCmdTool + AgentTool/AgentTeamTool 增强） | 14 工具，收敛检查 + 冲突检测 + 身份注入 |
+| 4 | 校验与恢复（validate/context/file_tracker/resume） | 4 文件，18 函数 |
+| 5 | 提示词分层（Planner/Supervisor/Worker 按角色 prompt） | agent_def.ts |
+| 6a | P0 链路连通（8 致命缺口修复） | lockSession/树 ID 统一/treeNodeId 关联/dispatchNode+WAL 调用/subConfig 传参 |
+| 6b | P1 功能补全（13 项未实现） | decomposeWithValidation/ITreeAgentBridge/级联终止/WAL compaction/Delta/文件锁/发散检测/安全检测/addChildNode 守卫 |
+| 6c | P2 UX 改进（get_node/delete_node/去重/覆盖警告/发散显示） | TreeCmdTool + AgentTeamTool |
+| — | **fetch 超时修复**（retry.ts重写 + callLLM try/finally + concurrency setTimeout） | retry/agent_def/concurrency/session_loop |
+| — | **默认 prompt 加 TreeCmd 使用指引**（多领域/多文件/多步骤→建树→拆→派→收） | agent_def.ts |
+| — | **Agent↔树桥接 + TreeWriteLock 并发修复**（可重入检查删除 + add_child 返回提示 + parent_node_id 强化） | lock/TreeCmdTool/AgentTool |
+
+**任务树系统详细文档**：
+- [实施总览](pipeline/plan-task-tree-overview.md)
+- [完整设计 v2](pipeline/plan-task-tree-v2.md)
+- [六维度审查报告](pipeline/plan-task-tree-review.md)
+- [改善计划 + 附录](pipeline/plan-task-tree-fix.md)
+- [执行计划](pipeline/plan-task-tree-execution.md)
+
+### 统一 Agent 循环 + 团队重构（2026-08-04 ~ 2026-08-05）
+
+| Phase | 内容 | 日期 |
+|-------|------|------|
+| — | agentLoop() 统一循环（消除 60 行重复 + 15 行死代码） | 08-05 |
+| — | agent_team 共享白板 + 双向反馈（[FEEDBACK]/[BLOCKED] 标记） | 08-05 |
+| — | agent.ts 拆分为 agent_def.ts + session_loop.ts | 08-05 |
+| — | task.ts → agent_team.ts 重命名 | 08-05 |
+| — | 子Agent 工具串行/并行差异发现与保护 | 08-05 |
+| — | Claude Code 四层子Agent消息隔离研究 | 08-04 |
+| — | Claude Code 五级工具权限体系研究 | 08-04 |
+| — | Claude Code Fork Agent 机制研究 | 08-04 |
+
+### 早期基础设施（2026-08-02 ~ 2026-08-04）
 
 | Phase | 内容 | 日期 |
 |-------|------|------|

@@ -10,6 +10,7 @@ import { MCPTool } from './MCPTool/MCPTool.js';
 import { SkillTool } from './SkillTool/SkillTool.js';
 import { AgentTool } from './AgentTool/AgentTool.js';
 import { AgentTeamTool } from './AgentTeamTool/AgentTeamTool.js';
+import { TreeCmdTool } from './TreeCmdTool/TreeCmdTool.js';
 export function getAllTools() {
     return [
         BashTool,
@@ -24,5 +25,6 @@ export function getAllTools() {
         SkillTool,
         AgentTool,
         AgentTeamTool,
+        TreeCmdTool,
     ].filter(t => t.isEnabled());
 }

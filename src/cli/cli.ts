@@ -109,16 +109,24 @@ export async function startCLI(engine: AgentEngine, tools: ReadonlyArray<{ name:
         engine.flushNotifications();
         engine.sessionMessages.push({ role: 'user', content: current });
 
-        const resultText = await agentLoop(engine, {
+        const loopResult = await agentLoop(engine, {
           messages: engine.sessionMessages,
           maxRounds: 25,
           onProgress: renderProgress,
           onTurnComplete: (msgs, tc) => engine.onTurnComplete?.(msgs, tc),
           phaseLabel: (i, lastMsg) => i === 0 ? 'analyzing' :
             typeof lastMsg === 'string' && lastMsg.length < 200 ? 'continuing' : 'reviewing results',
+          preRoundCheck: () => {
+            // 检查树信号
+            if ((engine as any).pendingNotifications.some((n: any) => n.content?.startsWith?.('[TREE]'))) {
+              engine.flushNotifications();
+              return null; // 已注入 messages，继续正常执行
+            }
+            return null;
+          },
         });
 
-        const result = { text: resultText, ms: Date.now() - startTime };
+        const result = { text: loopResult.text, ms: Date.now() - startTime };
         console.log(`\n${mdToANSI(result.text)}\n[${result.ms}ms]\n`);
       } catch (e) {
         const err = e as Error & { cause?: Error };

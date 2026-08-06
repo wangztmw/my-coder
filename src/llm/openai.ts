@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod/v4';
-import type { Tools } from '../tools-v2/Tool.js';
+import type { Tools } from '../tools-v2/core/Tool.js';
 import type { LLMProvider, ChatMessage, LLMResponse } from './types.js';
 import { fetchWithRetry } from './retry.js';
 
@@ -74,7 +74,12 @@ export const openaiProvider: LLMProvider = {
       }),
     });
     if (!r.ok) throw new Error(`API ${r.status}: ${(await r.text()).slice(0, 200)}`);
-    const d = await r.json() as Record<string, unknown>;
+    let d: Record<string, unknown>;
+    try {
+      d = await r.json() as Record<string, unknown>;
+    } catch (e) {
+      throw new Error(`Unterminated string in JSON: ${(e as Error).message}`.slice(0, 200));
+    }
     const choice = (d.choices as Array<Record<string, unknown>>)?.[0];
     const msg = choice?.message as Record<string, unknown> | undefined;
 

@@ -6,6 +6,7 @@
  */
 import { AgentEngine, type ProgressEvent, type AgentResult } from './agent_def.js';
 import type { ChatMessage } from './llm/types.js';
+import type { LoopResult, AgentMeta } from './task_tree/types.js';
 
 // ---- 参数接口 ----
 
@@ -20,6 +21,10 @@ export interface AgentLoopParams {
   phaseLabel?: (i: number, lastMsg: unknown) => string;
   /** 工具执行模式：true=串行(子Agent)，默认false=并行(主Agent) */
   serialTools?: boolean;
+  /** 当前 Agent 的树角色元数据（任务树系统注入） */
+  agentMeta?: AgentMeta;
+  /** 文件操作追踪 hook（任务树系统注入） */
+  fileTracker?: (toolName: string, input: Record<string, unknown>) => void;
 }
 
 // ---- 辅助函数 ----
@@ -45,6 +50,7 @@ async function executeTools(
   onProgress?: (e: ProgressEvent) => void,
   updateStats?: (name: string, summary: string, output: string) => void,
   serial?: boolean,
+  fileTracker?: (toolName: string, input: Record<string, unknown>) => void,
 ): Promise<Array<{ name: string; id: string; input: Record<string, unknown>; output: string }>> {
   const toolUses = (response.content as any[])
     .filter((b: any) => b.type === 'tool_use' && b.name && b.id);
@@ -52,6 +58,8 @@ async function executeTools(
   const toolContext = (engine as any).toolContext;
 
   const executeOne = async (b: any) => {
+    // ★ 文件追踪 hook
+    if (fileTracker) fileTracker(b.name!, b.input || {});
     const tool = toolMap.get(b.name!);
     let output = '';
     if (tool) {
@@ -102,20 +110,40 @@ function pushResults(
 export async function agentLoop(
   engine: AgentEngine,
   params: AgentLoopParams,
-): Promise<string> {
+): Promise<LoopResult> {
   const { messages, maxRounds, onProgress, onTurnComplete, onComplete,
-          preRoundCheck, updateStats, phaseLabel, serialTools } = params;
+          preRoundCheck, updateStats, phaseLabel, serialTools, fileTracker } = params;
 
   for (let i = 0; i < maxRounds; i++) {
     if (preRoundCheck) {
       const signal = preRoundCheck(messages);
-      if (signal) return signal;
+      if (signal) {
+        // ★ 硬 break：blocked 信号不依赖 LLM 理解文本
+        if (signal.startsWith('BLOCKED:') || signal.startsWith('blocked:')) {
+          const reason = signal.replace(/^BLOCKED:\s*/i, '');
+          onComplete?.('(blocked)');
+          return { status: 'blocked', text: `(blocked: ${reason})`, blockedReason: reason, roundCount: i + 1 };
+        }
+        // kill 信号
+        if (signal === '(killed)' || signal.startsWith('killed')) {
+          onComplete?.('(killed)');
+          return { status: 'killed', text: signal, roundCount: i + 1 };
+        }
+        // 其他信号：注入 messages 让 LLM 处理（兼容旧行为）
+        messages.push({ role: 'user', content: `[SIGNAL] ${signal}` });
+      }
     }
 
     const lastMsg = messages[messages.length - 1]?.content;
     const phase = phaseLabel?.(i, lastMsg) ?? 'processing';
 
-    const response = await (engine as any).callLLM(messages, phase, onProgress);
+    let response: { content: Array<unknown>; stop_reason: string };
+    try {
+      response = await (engine as any).callLLM(messages, phase, onProgress);
+    } catch (e) {
+      const errMsg = (e as Error).message || String(e);
+      return { status: 'crashed', text: `LLM call failed: ${errMsg}`, roundCount: i + 1 };
+    }
 
     if (response.stop_reason === 'end_turn') {
       messages.push({ role: 'assistant', content: response.content });
@@ -123,7 +151,7 @@ export async function agentLoop(
       const tc = countToolUses(response);
       onTurnComplete?.(messages, tc);
       onComplete?.(text);
-      return text || '(done)';
+      return { status: 'success', text: text || '(done)', roundCount: i + 1 };
     }
 
     if (response.stop_reason === 'tool_use') {
@@ -141,11 +169,11 @@ export async function agentLoop(
       }
 
       const toolResults = await executeTools(engine, response, onProgress,
-        feedback ? (n, s, o) => updateStats?.(n, s, o, feedback!) : updateStats, serialTools);
+        feedback ? (n, s, o) => updateStats?.(n, s, o, feedback!) : updateStats, serialTools, fileTracker);
       pushResults(messages, engine, toolResults);
     } else {
-      return `Unexpected: ${response.stop_reason}`;
+      return { status: 'crashed', text: `Unexpected stop_reason: ${response.stop_reason}`, roundCount: i + 1 };
     }
   }
-  return '(max iterations)';
+  return { status: 'max_rounds', text: '(max iterations)', roundCount: maxRounds };
 }

@@ -3,7 +3,7 @@
  * 屏蔽 Anthropic vs OpenAI/DeepSeek 的消息格式差异
  */
 
-import type { Tools } from '../tools-v2/Tool.js';
+import type { Tools } from '../tools-v2/core/Tool.js';
 
 // ---- 通用类型 ----
 

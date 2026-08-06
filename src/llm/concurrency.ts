@@ -7,30 +7,33 @@
  */
 export class ConcurrencyLimiter {
   private running = 0;
-  private queue: Array<{ resolve: () => void; deadline: number }> = [];
+  private queue: Array<{ resolve: () => void; timer: ReturnType<typeof setTimeout> }> = [];
 
   constructor(private max: number) {}
 
   async acquire(): Promise<void> {
     if (this.running < this.max) { this.running++; return; }
-    const deadline = Date.now() + 120_000;
     return new Promise((resolve, reject) => {
-      this.queue.push({ resolve, deadline });
-      const check = setInterval(() => {
-        if (Date.now() > deadline) {
-          const idx = this.queue.findIndex(t => t.resolve === resolve);
-          if (idx >= 0) this.queue.splice(idx, 1);
-          clearInterval(check);
+      const timer = setTimeout(() => {
+        const idx = this.queue.findIndex(t => t.resolve === resolve);
+        if (idx >= 0) {
+          this.queue.splice(idx, 1);
           reject(new Error('LLM concurrency queue timeout (120s)'));
         }
-      }, 5000);
+      }, 120_000);
+      this.queue.push({ resolve, timer });
     });
   }
 
   release(): void {
     this.running--;
     const next = this.queue.shift();
-    if (next) { this.running++; next.resolve(); }
-    else this.running = Math.max(0, this.running);
+    if (next) {
+      this.running++;
+      clearTimeout(next.timer);
+      next.resolve();
+    } else {
+      this.running = Math.max(0, this.running);
+    }
   }
 }
